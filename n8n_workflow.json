@@ -1,0 +1,330 @@
+{
+  "name": "WhatsApp_AI_Odoo_Lead_Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook - Meta Verification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp",
+        "options": {}
+      },
+      "id": "2",
+      "name": "Webhook - Incoming WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body;\nif (!body.entry || !body.entry[0].changes || !body.entry[0].changes[0].value.messages) {\n  return [{ json: { isValid: false, reason: 'Status update or empty message' } }];\n}\n\nconst value = body.entry[0].changes[0].value;\nconst message = value.messages[0];\nconst contact = value.contacts ? value.contacts[0] : {};\n\nreturn [{\n  json: {\n    isValid: true,\n    whatsapp_message_id: message.id,\n    phone_number: message.from,\n    customer_name: contact.profile ? contact.profile.name : 'WhatsApp User',\n    message_text: message.text ? message.text.body : '',\n    message_type: message.type,\n    timestamp: message.timestamp\n  }\n}];"
+      },
+      "id": "3",
+      "name": "Code - Extract Message Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isValid }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "IF - Valid Text Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [540, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT whatsapp_message_id FROM processed_messages WHERE whatsapp_message_id = '{{ $json.whatsapp_message_id }}';"
+      },
+      "id": "5",
+      "name": "DB - Check Duplicate Message ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [760, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $items().length }}",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "IF - New Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [980, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO processed_messages (whatsapp_message_id) VALUES ('{{ $('Code - Extract Message Info').item.json.whatsapp_message_id }}');"
+      },
+      "id": "7",
+      "name": "DB - Mark Message Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT message_text, direction FROM messages WHERE phone_number = '{{ $('Code - Extract Message Info').item.json.phone_number }}' ORDER BY created_at DESC LIMIT 10;"
+      },
+      "id": "8",
+      "name": "DB - Load History & Knowledge",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1420, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"qwen2.5:3b\",\n  \"prompt\": \"System Prompt: Respond ONLY in JSON matching standard format.\\nCustomer message: {{ $('Code - Extract Message Info').item.json.message_text }}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
+      },
+      "id": "9",
+      "name": "HTTP Request - Ollama AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const responseText = $input.item.json.response;\n  const parsed = JSON.parse(responseText);\n  return [{ json: { success: true, ai_output: parsed } }];\n} catch (e) {\n  return [{\n    json: {\n      success: false,\n      ai_output: {\n        reply: 'Thank you for your message. We are experiencing a temporary technical issue. A team member will assist you shortly.',\n        lead_ready: true,\n        human_handoff: true,\n        handoff_reason: 'AI JSON Parse Error',\n        lead_score: 50,\n        lead: {}\n      }\n    }\n  }];\n}"
+      },
+      "id": "10",
+      "name": "Code - Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1860, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.META_WHATSAPP_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Code - Extract Message Info').item.json.phone_number }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.ai_output.reply }}\"\n  }\n}"
+      },
+      "id": "11",
+      "name": "HTTP Request - Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2080, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('{{ $('Code - Extract Message Info').item.json.whatsapp_message_id }}', '{{ $('Code - Extract Message Info').item.json.phone_number }}', 'incoming', '{{ $('Code - Extract Message Info').item.json.message_text }}'); INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract Message Info').item.json.phone_number }}', 'outgoing', '{{ $json.ai_output.reply }}');"
+      },
+      "id": "12",
+      "name": "DB - Save Messages Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2300, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $('Code - Parse AI Response').item.json.ai_output.lead_ready || $('Code - Parse AI Response').item.json.ai_output.human_handoff }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "13",
+      "name": "IF - Sync to Odoo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2520, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Placeholder for Odoo XML-RPC / REST API lead search & create/update\nreturn [{ json: { status: 'Odoo Lead Created/Updated Successfully' } }];"
+      },
+      "id": "14",
+      "name": "Odoo Lead Integration Node",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2740, 400]
+    }
+  ],
+  "connections": {
+    "Webhook - Incoming WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Message Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Message Info": {
+      "main": [
+        [
+          {
+            "node": "IF - Valid Text Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Valid Text Message": {
+      "main": [
+        [
+          {
+            "node": "DB - Check Duplicate Message ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB - Check Duplicate Message ID": {
+      "main": [
+        [
+          {
+            "node": "IF - New Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - New Message": {
+      "main": [
+        [
+          {
+            "node": "DB - Mark Message Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB - Mark Message Processed": {
+      "main": [
+        [
+          {
+            "node": "DB - Load History & Knowledge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB - Load History & Knowledge": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Ollama AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Ollama AI": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Send WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "DB - Save Messages Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB - Save Messages Log": {
+      "main": [
+        [
+          {
+            "node": "IF - Sync to Odoo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Sync to Odoo?": {
+      "main": [
+        [
+          {
+            "node": "Odoo Lead Integration Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

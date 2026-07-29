@@ -1,0 +1,540 @@
+==========================================================================================
+  DEVELOPER TASK BRIEF
+  Free Self-Hosted WhatsApp AI and Odoo Lead Automation
+==========================================================================================
+
+------------------------------------------------------------------------------------------
+  DOCUMENT OVERVIEW
+------------------------------------------------------------------------------------------
+  Category       : Technical Developer Task Brief
+  Domain         : WhatsApp AI Chatbot + Odoo CRM Integration
+  Architecture   : Self-Hosted / On-Premise (Free Tools)
+  Total Sections  : 20
+  Pages          : 13
+------------------------------------------------------------------------------------------
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 1: PROJECT GOAL
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Build a self-hosted automation system where:
+
+    1. A customer sends a message to the business WhatsApp number.
+    2. An AI assistant automatically chats with the customer.
+    3. The AI answers common business questions.
+    4. The AI collects the customer's lead information.
+    5. The system automatically creates or updates the lead in Odoo CRM.
+    6. Everything (except the official WhatsApp service) runs on a local PC.
+
+  Constraint: Use free and self-hosted software wherever possible.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 2: IMPORTANT MEANING OF 'FREE'
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  [A] PROHIBITED (Must NOT Use):
+    - OpenAI API
+    - Paid n8n Cloud
+    - Paid hosting or VPS
+    - Odoo Enterprise
+    - Paid chatbot platforms
+    - Paid database services
+
+  [B] REQUIRED (Use These Instead):
+    - n8n Community Edition          (self-hosted automation)
+    - Ollama                         (local AI model runtime)
+    - Odoo Community Edition         (on-premise CRM)
+    - PostgreSQL                     (local database)
+    - Docker & Docker Compose        (containerization)
+    - Cloudflare Quick Tunnel        (public webhook for testing)
+    - Meta WhatsApp Cloud API        (messaging service)
+
+  Note: WhatsApp service messages sent during the 24-hour customer-service
+        window are currently not charged by Meta. Marketing, authentication,
+        or business-initiated messages may still incur a cost.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 3: SUGGESTED TECHNOLOGY STACK
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    Component                  Technology
+    --------------------------  -----------------------------------
+    Operating System           Windows 10/11 or Ubuntu
+    Container System           Docker and Docker Compose
+    Automation                 n8n Community Edition
+    Local AI                   Ollama
+    AI Model                   Gemma 3, Qwen 3, or suitable small model
+    CRM                        Odoo Community Edition
+    Database                   PostgreSQL
+    Public Webhook             Cloudflare Quick Tunnel
+    Messaging                  Meta WhatsApp Cloud API
+
+  Note: The developer should choose an AI model compatible with available
+        PC RAM, CPU, and GPU specifications.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 4: MAIN SYSTEM WORKFLOW
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    Step 1:   Customer sends a WhatsApp message
+    Step 2:   Meta WhatsApp Cloud API receives the message
+    Step 3:   Meta sends the message to the n8n webhook
+    Step 4:   n8n checks whether the message was already processed
+    Step 5:   n8n loads the customer's previous conversation
+    Step 6:   n8n sends the message + history to Ollama
+    Step 7:   Ollama returns:
+                 - WhatsApp reply
+                 - Collected lead information
+                 - Lead status
+                 - Human handover status
+    Step 8:   n8n sends the reply to the customer on WhatsApp
+    Step 9:   n8n saves the conversation
+    Step 10:  If enough lead information is available:
+                 - Search for the customer in Odoo
+                 - Create a new lead or update the existing lead
+                 - Create a follow-up activity for the salesperson
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 5: CUSTOMER CONVERSATION FLOW
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  The AI should communicate naturally and ask only one or two questions at a time.
+
+  [Data to Collect]:
+    - Customer name
+    - WhatsApp phone number
+    - Company name (when relevant)
+    - Product or service of interest
+    - Customer requirement
+    - Location
+    - Approximate budget
+    - Required timeline
+    - Email address (when available)
+    - Preferred contact time
+    - Additional notes
+
+  [Example Conversation]:
+    Customer : "I need an ERP system."
+    AI       : "Thank you for contacting us. What type of business do you operate?"
+    Customer : "We have a wholesale business."
+    AI       : "Understood. Which areas do you want to manage, such as sales,
+                inventory, accounting, or purchasing?"
+    Customer : "Sales, stock and accounts."
+    AI       : "Thank you. May I know your name and company name?"
+
+  Rule: The AI must NOT ask for information already provided by the customer.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 6: AI BEHAVIOUR RULES
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    1.  Reply in the same language used by the customer when possible.
+    2.  Support simple Bangla and English.
+    3.  Be polite, short, and professional.
+    4.  Ask questions one at a time.
+    5.  Never invent a price, feature, policy, or delivery date.
+    6.  Only use approved business information.
+    7.  Inform the customer when information is unavailable.
+    8.  Transfer the conversation to a human when necessary.
+    9.  Do not request passwords, payment PINs, OTPs, or sensitive financial data.
+    10. Create or update the Odoo lead when useful information is available.
+    11. Do not wait until the conversation is completely finished before saving the lead.
+    12. Update the same lead when the customer provides more information.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 7: AI RESPONSE FORMAT (Ollama JSON)
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Ollama must return valid JSON instead of unstructured text.
+
+  Required Format:
+  {
+      "reply": "Thank you. What is your approximate budget?",
+      "lead_ready": false,
+      "human_handoff": false,
+      "handoff_reason": "",
+      "lead_score": 40,
+      "lead": {
+          "name": "Rahim",
+          "phone": "8801XXXXXXXXX",
+          "email": "",
+          "company": "ABC Traders",
+          "product_interest": "Odoo ERP",
+          "requirement": "Sales, inventory and accounting",
+          "budget": "",
+          "timeline": "",
+          "location": "Dhaka",
+          "preferred_contact_time": "",
+          "notes": ""
+      }
+  }
+
+  [Invalid JSON Handling]:
+    1. Retry the AI request once.
+    2. Use a safe fallback reply if the second attempt fails.
+    3. Save the error in the execution log.
+    4. Avoid creating incorrect Odoo data.
+
+  Fallback Reply: "Thank you for your message. We are having a temporary
+                    technical issue. A team member will review your request."
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 8: LEAD-READY RULES
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Set lead_ready = true when at least the following are available:
+    - Phone number
+    - Customer name or identifiable contact
+    - Product or service interest
+    - Basic customer requirement
+
+  Also trigger immediate lead creation/update when the customer says:
+    - "Call me"
+    - "I need a quotation"
+    - "I am interested"
+    - "Please arrange a meeting"
+    - "I want to talk to a salesperson"
+    - "How can I buy?"
+    - Similar high-intent messages
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 9: HUMAN HANDOVER RULES
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Set human_handoff = true when:
+    - The customer asks for a human agent.
+    - The customer makes a complaint.
+    - The customer is angry or unhappy.
+    - The AI does not know the correct answer.
+    - The customer requests a final price or negotiation.
+    - The customer requests a customised quotation.
+    - The customer asks legal, payment, or contract questions.
+    - The AI fails repeatedly.
+
+  [Handover Procedure]:
+    1. Stop normal AI sales questions.
+    2. Create or update the Odoo lead.
+    3. Create an Odoo follow-up activity.
+    4. Add the handover reason.
+    5. Send the handover reply to the customer.
+
+  Handover Reply: "Thank you. I have shared your request with our team.
+                      A representative will contact you as soon as possible."
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 10: ODOO CRM REQUIREMENTS
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  [Standard Odoo Fields]:
+    - Lead Title
+    - Contact Name
+    - Phone
+    - Email
+    - Company
+    - Description
+    - Salesperson
+    - Priority
+    - Lead Source
+
+  [Custom Fields to Create]:
+    - x_whatsapp_number
+    - x_whatsapp_message_id
+    - x_product_interest
+    - x_customer_requirement
+    - x_customer_budget
+    - x_required_timeline
+    - x_customer_location
+    - x_preferred_contact_time
+    - x_ai_lead_score
+    - x_ai_summary
+    - x_handoff_reason
+    - x_last_message_time
+
+  [Duplicate Lead Prevention]:
+    1. Search by WhatsApp phone number.
+    2. Search recent open leads for the same customer.
+    3. Update existing lead when a match is found.
+    4. Create a new lead only when no suitable lead exists.
+
+  Suggested Lead Title: "WhatsApp Lead - Customer Name - Product Interest"
+
+  Suggested Description Format:
+    Source: WhatsApp AI Assistant
+    Customer requirement: [Requirement]
+    Budget: [Budget]
+    Timeline: [Timeline]
+    Location: [Location]
+    AI lead score: [Score]
+    Conversation summary: [Summary]
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 11: n8n WORKFLOW STRUCTURE
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Create one main workflow with the following nodes:
+
+    Node   Function
+    ----   --------------------------------------------------------
+     1     Webhook - Meta verification
+     2     Webhook - Incoming WhatsApp message
+     3     Code/Set - Extract message information
+     4     IF - Ignore status updates and unsupported events
+     5     Database lookup - Check duplicate message ID
+     6     Database lookup - Load conversation history
+     7     Database lookup - Load business information
+     8     HTTP Request - Send request to Ollama
+     9     Code - Parse and validate AI JSON
+    10     IF - Check AI response validity
+    11     HTTP Request - Send reply through WhatsApp Cloud API
+    12     Database - Save incoming and outgoing messages
+    13     IF - Check lead_ready or human_handoff
+    14     HTTP Request/Code - Search Odoo lead
+    15     IF - Existing lead found
+    16     HTTP Request/Code - Update Odoo lead
+    17     HTTP Request/Code - Create Odoo lead
+    18     Odoo action - Create salesperson follow-up activity
+    19     Database - Mark message as processed
+    20     Error workflow - Save and report errors
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 12: CONVERSATION STORAGE (Database Schema)
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Use PostgreSQL or another reliable local database.
+
+  [Table: contacts]
+    - id
+    - phone_number
+    - customer_name
+    - email
+    - company
+    - language
+    - ai_enabled
+    - human_handoff
+    - created_at
+    - updated_at
+
+  [Table: messages]
+    - id
+    - whatsapp_message_id
+    - phone_number
+    - direction
+    - message_text
+    - message_type
+    - created_at
+
+  [Table: conversations]
+    - id
+    - phone_number
+    - conversation_summary
+    - collected_lead_data
+    - lead_score
+    - odoo_lead_id
+    - last_message_at
+    - status
+
+  [Table: processed_messages]
+    - whatsapp_message_id
+    - processed_at
+
+  Note: The processed_messages table prevents duplicate replies when Meta
+        resends a webhook event.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 13: BUSINESS KNOWLEDGE BASE
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  Create a simple editable business knowledge source (JSON file, database table,
+  or n8n data store) containing:
+
+    - Company introduction
+    - Product and service list
+    - Frequently asked questions
+    - Approved pricing information
+    - Business hours
+    - Service locations
+    - Contact information
+    - Delivery or implementation process
+    - Refund or cancellation policy
+    - Questions used to qualify leads
+
+  Requirement: The owner must be able to update this information without changing
+              the main workflow.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 14: PUBLIC WEBHOOK (Cloudflare Quick Tunnel)
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  For the free testing version, expose the local n8n webhook through
+  Cloudflare Quick Tunnel.
+
+  Example Command:
+    cloudflared tunnel --url http://localhost:5678
+
+  Caveats:
+    - Quick Tunnels are intended only for testing and development.
+    - They generate a random public subdomain.
+    - No uptime guarantee is provided.
+    - The webhook URL may need to be updated after restarting the tunnel.
+
+  [Documentation Required]:
+    - How to start the tunnel
+    - How to find the new public URL
+    - Where to update the URL in Meta
+    - How to verify the WhatsApp webhook
+    - What happens when the PC or internet is offline
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 15: SECURITY REQUIREMENTS
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    1.  Keep Meta access tokens outside workflow screenshots.
+    2.  Store credentials in n8n Credentials or environment variables.
+    3.  Protect the n8n login with a strong password.
+    4.  Do not expose Odoo or PostgreSQL directly to the public internet.
+    5.  Validate Meta webhook verification requests.
+    6.  Validate incoming payloads.
+    7.  Limit accepted message types.
+    8.  Add duplicate-message protection.
+    9.  Keep regular database backups.
+    10. Remove tokens and passwords from exported workflow files.
+    11. Add a method to disable the AI assistant manually.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 16: DEVELOPER TASKS (By Phase)
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  [Phase 1: Local Installation]
+    - Install Docker and Docker Compose.
+    - Install n8n Community Edition.
+    - Install Ollama.
+    - Download and test a suitable local AI model.
+    - Install PostgreSQL.
+    - Install Odoo Community Edition.
+    - Confirm that all services restart correctly.
+
+  [Phase 2: WhatsApp Setup]
+    - Create or configure the Meta developer application.
+    - Configure WhatsApp Cloud API.
+    - Configure the test phone number first.
+    - Create webhook verification.
+    - Receive incoming text messages.
+    - Send outgoing text replies.
+    - Ignore delivery status events.
+
+  [Phase 3: AI Setup]
+    - Create the AI system prompt.
+    - Add business information.
+    - Add lead qualification rules.
+    - Force structured JSON output.
+    - Add invalid-response handling.
+    - Test Bangla and English conversations.
+
+  [Phase 4: Odoo Integration]
+    - Create required custom CRM fields.
+    - Search leads by phone number.
+    - Create new leads.
+    - Update existing leads.
+    - Create follow-up activities.
+    - Prevent duplicate leads.
+
+  [Phase 5: Complete Workflow]
+    - Connect WhatsApp, Ollama, storage, and Odoo.
+    - Save conversation history.
+    - Add duplicate webhook protection.
+    - Add human handover.
+    - Add error handling.
+    - Add workflow logs.
+
+  [Phase 6: Testing and Handover]
+    - Test at least 20 different conversations.
+    - Test incomplete information scenarios.
+    - Test duplicate messages.
+    - Test AI failure scenarios.
+    - Test Odoo being offline.
+    - Test PC restart.
+    - Test internet disconnection.
+    - Export the n8n workflow.
+    - Provide installation and operating instructions.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 17: REQUIRED DELIVERABLES
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    1.  Working n8n workflow.
+    2.  Exported n8n workflow JSON.
+    3.  Docker Compose file.
+    4.  Ollama model and configuration details.
+    5.  AI system prompt.
+    6.  Odoo field list and configuration.
+    7.  Database table structure.
+    8.  Environment variable example file.
+    9.  Setup instructions.
+   10.  Start and stop instructions.
+   11.  Backup and restore instructions.
+   12.  Error troubleshooting guide.
+   13.  WhatsApp webhook setup guide.
+   14.  A short video showing the complete workflow.
+   15.  All usernames, configuration files, and source code created for the project.
+
+  Note: Passwords and secret tokens should be handed over securely and should NOT
+        appear inside the documentation or video.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 18: ACCEPTANCE CRITERIA
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  The project will be accepted when:
+
+    [ ] A customer can send a WhatsApp text message.
+    [ ] The local AI replies automatically.
+    [ ] The AI remembers the recent conversation.
+    [ ] The AI can communicate in simple Bangla and English.
+    [ ] The AI collects lead information.
+    [ ] A new Odoo lead is created automatically.
+    [ ] An existing Odoo lead is updated instead of duplicated.
+    [ ] The WhatsApp number is saved correctly.
+    [ ] Conversation details are added to the Odoo lead.
+    [ ] Human handover works correctly.
+    [ ] Duplicate webhook events do not create duplicate replies.
+    [ ] The system shows a safe message when the AI fails.
+    [ ] The system works without OpenAI or any other paid AI API.
+    [ ] The system can be restarted using documented steps.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 19: FREE-VERSION LIMITATIONS
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  The owner understands that:
+
+    - The PC must remain turned on.
+    - The internet connection must remain active.
+    - The chatbot stops when the PC, n8n, tunnel, or internet is offline.
+    - Local AI response speed depends on PC hardware.
+    - A small local AI model may be less accurate than a paid cloud model.
+    - Cloudflare Quick Tunnel is for testing only; no guaranteed production uptime.
+    - Restarting the free tunnel may produce a new webhook URL.
+    - WhatsApp marketing or business-initiated template messages may incur Meta charges.
+    - Electricity and internet costs are not included in 'free software'.
+    - This setup is suitable for an MVP and low message volume.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  SECTION 20: FINAL EXPECTED RESULT
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  The final system should work as follows:
+
+    Customer sends message on WhatsApp
+        -> Local n8n receives the message
+        -> Local Ollama AI prepares the reply
+        -> Reply is sent to WhatsApp
+        -> Lead information is collected
+        -> Odoo lead is created or updated
+        -> Salesperson receives a follow-up task
+
+  No paid AI API, paid automation platform, paid server, or Odoo Enterprise
+  subscription should be required for the MVP.
+
+==========================================================================================
+  END OF DOCUMENT
+==========================================================================================
