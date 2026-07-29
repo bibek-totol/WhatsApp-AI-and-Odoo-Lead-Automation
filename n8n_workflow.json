@@ -16,6 +16,16 @@
     },
     {
       "parameters": {
+        "jsCode": "const query = $input.item.json.query || {};\nconst verifyToken = process.env.META_VERIFY_TOKEN || 'my_secure_whatsapp_verify_token_2026';\n\nconst mode = query['hub.mode'];\nconst token = query['hub.verify_token'];\nconst challenge = query['hub.challenge'];\n\nif (mode === 'subscribe' && token === verifyToken) {\n  return [{ json: { body: challenge } }];\n} else {\n  return [{ json: { body: 'Verification failed: invalid token or mode', status: 403 } }];\n}"
+      },
+      "id": "1b",
+      "name": "Code - Validate Verification Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 200]
+    },
+    {
+      "parameters": {
         "httpMethod": "POST",
         "path": "whatsapp",
         "options": {}
@@ -28,10 +38,10 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.item.json.body;\nif (!body.entry || !body.entry[0].changes || !body.entry[0].changes[0].value.messages) {\n  return [{ json: { isValid: false, reason: 'Status update or empty message' } }];\n}\n\nconst value = body.entry[0].changes[0].value;\nconst message = value.messages[0];\nconst contact = value.contacts ? value.contacts[0] : {};\n\nreturn [{\n  json: {\n    isValid: true,\n    whatsapp_message_id: message.id,\n    phone_number: message.from,\n    customer_name: contact.profile ? contact.profile.name : 'WhatsApp User',\n    message_text: message.text ? message.text.body : '',\n    message_type: message.type,\n    timestamp: message.timestamp\n  }\n}];"
+        "jsCode": "const body = $input.item.json.body;\n\n// 1. Validate payload structure\nif (!body || typeof body !== 'object' || !body.entry || !Array.isArray(body.entry) || body.entry.length === 0) {\n  return [{ json: { isValid: false, reason: 'Invalid or missing entry payload structure' } }];\n}\n\nconst changes = body.entry[0].changes;\nif (!changes || !Array.isArray(changes) || changes.length === 0 || !changes[0].value) {\n  return [{ json: { isValid: false, reason: 'Missing change value payload' } }];\n}\n\nconst value = changes[0].value;\nif (!value.messages || !Array.isArray(value.messages) || value.messages.length === 0) {\n  return [{ json: { isValid: false, reason: 'Status delivery update or empty message (ignored)' } }];\n}\n\nconst message = value.messages[0];\nconst contact = value.contacts && value.contacts.length > 0 ? value.contacts[0] : {};\n\n// 2. Limit accepted message types: text only\nif (message.type !== 'text' || !message.text || !message.text.body || message.text.body.trim() === '') {\n  return [{ json: { isValid: false, reason: `Unsupported message type '${message.type}' (accepted: text only)` } }];\n}\n\nreturn [{\n  json: {\n    isValid: true,\n    whatsapp_message_id: message.id,\n    phone_number: message.from,\n    customer_name: contact.profile ? contact.profile.name : 'WhatsApp User',\n    message_text: message.text.body.trim(),\n    message_type: message.type,\n    timestamp: message.timestamp\n  }\n}];"
       },
       "id": "3",
-      "name": "Code - Extract Message Info",
+      "name": "Code - Extract & Validate Message Info",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [320, 400]
@@ -84,7 +94,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO processed_messages (whatsapp_message_id) VALUES ('{{ $('Code - Extract Message Info').item.json.whatsapp_message_id }}');"
+        "query": "INSERT INTO processed_messages (whatsapp_message_id) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.whatsapp_message_id }}');"
       },
       "id": "7",
       "name": "DB - Mark Message Processed",
@@ -95,7 +105,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT message_text, direction FROM messages WHERE phone_number = '{{ $('Code - Extract Message Info').item.json.phone_number }}' ORDER BY created_at DESC LIMIT 10;"
+        "query": "SELECT message_text, direction FROM messages WHERE phone_number = '{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}' ORDER BY created_at DESC LIMIT 10;"
       },
       "id": "8",
       "name": "DB - Load History & Knowledge",
@@ -105,11 +115,28 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $env.ENABLE_AI_ASSISTANT !== 'false' }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "8b",
+      "name": "IF - AI Enabled Globally",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1530, 400]
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:11434/api/generate",
+        "url": "=http://host.docker.internal:11434/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"qwen2.5:3b\",\n  \"prompt\": \"System Prompt: Respond ONLY in JSON matching standard format.\\nCustomer message: {{ $('Code - Extract Message Info').item.json.message_text }}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
+        "jsonBody": "={\n  \"model\": \"{{ $env.OLLAMA_MODEL || 'qwen2.5:3b' }}\",\n  \"prompt\": \"System Prompt: Respond ONLY in JSON matching standard format.\\nCustomer message: {{ $('Code - Extract & Validate Message Info').item.json.message_text }}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
       },
       "id": "9",
       "name": "HTTP Request - Ollama AI",
@@ -126,6 +153,16 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1860, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    success: true,\n    ai_output: {\n      reply: 'Thank you for your message. Our automated AI assistant is currently paused. A team representative will reply to you shortly.',\n      lead_ready: true,\n      human_handoff: true,\n      handoff_reason: 'AI Assistant Disabled Manually',\n      lead_score: 0,\n      lead: {}\n    }\n  }\n}];"
+      },
+      "id": "10b",
+      "name": "Code - AI Disabled Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1860, 580]
     },
     {
       "parameters": {
@@ -146,7 +183,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Code - Extract Message Info').item.json.phone_number }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.ai_output.reply }}\"\n  }\n}"
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.ai_output.reply }}\"\n  }\n}"
       },
       "id": "11",
       "name": "HTTP Request - Send WhatsApp Reply",
@@ -157,7 +194,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('{{ $('Code - Extract Message Info').item.json.whatsapp_message_id }}', '{{ $('Code - Extract Message Info').item.json.phone_number }}', 'incoming', '{{ $('Code - Extract Message Info').item.json.message_text }}'); INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract Message Info').item.json.phone_number }}', 'outgoing', '{{ $json.ai_output.reply }}');"
+        "query": "INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.whatsapp_message_id }}', '{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}', 'incoming', '{{ $('Code - Extract & Validate Message Info').item.json.message_text }}'); INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}', 'outgoing', '{{ $json.ai_output.reply }}');"
       },
       "id": "12",
       "name": "DB - Save Messages Log",
@@ -170,7 +207,7 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{ $('Code - Parse AI Response').item.json.ai_output.lead_ready || $('Code - Parse AI Response').item.json.ai_output.human_handoff }}",
+              "value1": "={{ $json.ai_output.lead_ready || $json.ai_output.human_handoff }}",
               "value2": true
             }
           ]
@@ -184,7 +221,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Placeholder for Odoo XML-RPC / REST API lead search & create/update\nreturn [{ json: { status: 'Odoo Lead Created/Updated Successfully' } }];"
+        "jsCode": "// Search Odoo CRM by x_whatsapp_number and create or update lead\nreturn [{ json: { status: 'Odoo Lead Created/Updated Successfully' } }];"
       },
       "id": "14",
       "name": "Odoo Lead Integration Node",
@@ -194,18 +231,29 @@
     }
   ],
   "connections": {
-    "Webhook - Incoming WhatsApp": {
+    "Webhook - Meta Verification": {
       "main": [
         [
           {
-            "node": "Code - Extract Message Info",
+            "node": "Code - Validate Verification Token",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code - Extract Message Info": {
+    "Webhook - Incoming WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract & Validate Message Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract & Validate Message Info": {
       "main": [
         [
           {
@@ -264,7 +312,25 @@
       "main": [
         [
           {
+            "node": "IF - AI Enabled Globally",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - AI Enabled Globally": {
+      "main": [
+        [
+          {
             "node": "HTTP Request - Ollama AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - AI Disabled Response",
             "type": "main",
             "index": 0
           }
@@ -283,6 +349,17 @@
       ]
     },
     "Code - Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - AI Disabled Response": {
       "main": [
         [
           {
