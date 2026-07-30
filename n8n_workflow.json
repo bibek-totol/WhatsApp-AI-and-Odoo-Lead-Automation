@@ -18,7 +18,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst headers = $input.item.json.headers || {};\nconst secretToken = process.env.TELEGRAM_SECRET_TOKEN || (typeof $env !== 'undefined' ? $env.TELEGRAM_SECRET_TOKEN : '');\nconst incomingToken = headers['x-telegram-bot-api-secret-token'];\n\n// 1. Verify Secret Token if configured\nif (secretToken && incomingToken && secretToken !== incomingToken) {\n  return [{ json: { isValid: false, reason: 'Invalid secret token header' } }];\n}\n\nconst message = body.message || body.edited_message;\nif (!message || typeof message !== 'object') {\n  return [{ json: { isValid: false, reason: 'No message object in payload' } }];\n}\n\n// 2. Limit accepted message types: text only\nif (!message.text || message.text.trim() === '') {\n  return [{ json: { isValid: false, reason: 'Non-text message ignored (accepted: text only)' } }];\n}\n\nconst fromUser = message.from || {};\nconst chat = message.chat || {};\nconst firstName = fromUser.first_name || chat.first_name || '';\nconst lastName = fromUser.last_name || chat.last_name || '';\nconst fullName = [firstName, lastName].filter(Boolean).join(' ') || fromUser.username || 'Telegram User';\n\nreturn [{\n  json: {\n    isValid: true,\n    telegram_message_id: message.message_id.toString(),\n    chat_id: chat.id.toString(),\n    telegram_username: fromUser.username ? '@' + fromUser.username : '',\n    customer_name: fullName,\n    message_text: message.text.trim(),\n    message_type: 'text',\n    timestamp: message.date\n  }\n}];"
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst headers = $input.item.json.headers || {};\n\nlet secretToken = '';\ntry {\n  secretToken = (typeof $env !== 'undefined' && $env.TELEGRAM_SECRET_TOKEN) ? $env.TELEGRAM_SECRET_TOKEN : '';\n} catch (e) {\n  secretToken = '';\n}\n\nconst incomingToken = headers['x-telegram-bot-api-secret-token'] || headers['X-Telegram-Bot-Api-Secret-Token'];\n\n// 1. Verify Secret Token if configured\nif (secretToken && incomingToken && secretToken !== incomingToken) {\n  return [{ json: { isValid: false, reason: 'Invalid secret token header' } }];\n}\n\nconst message = body.message || body.edited_message;\nif (!message || typeof message !== 'object') {\n  return [{ json: { isValid: false, reason: 'No message object in payload' } }];\n}\n\n// 2. Limit accepted message types: text only\nif (!message.text || message.text.trim() === '') {\n  return [{ json: { isValid: false, reason: 'Non-text message ignored (accepted: text only)' } }];\n}\n\nconst fromUser = message.from || {};\nconst chat = message.chat || {};\nconst firstName = fromUser.first_name || chat.first_name || '';\nconst lastName = fromUser.last_name || chat.last_name || '';\nconst fullName = [firstName, lastName].filter(Boolean).join(' ') || fromUser.username || 'Telegram User';\n\nreturn [{\n  json: {\n    isValid: true,\n    telegram_message_id: message.message_id.toString(),\n    chat_id: chat.id.toString(),\n    telegram_username: fromUser.username ? '@' + fromUser.username : '',\n    customer_name: fullName,\n    message_text: message.text.trim(),\n    message_type: 'text',\n    timestamp: message.date\n  }\n}];"
       },
       "id": "3",
       "name": "Code - Extract & Validate Message Info",
@@ -52,7 +52,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT telegram_message_id FROM processed_messages WHERE telegram_message_id = '{{ $json.telegram_message_id }}';"
+        "query": "SELECT COUNT(*) AS msg_count FROM processed_messages WHERE telegram_message_id = '{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}';"
       },
       "id": "5",
       "name": "DB - Check Duplicate Message ID",
@@ -68,7 +68,8 @@
         "conditions": {
           "number": [
             {
-              "value1": "={{ $items().length }}",
+              "value1": "={{ Number($json.msg_count) }}",
+              "operation": "equal",
               "value2": 0
             }
           ]
@@ -100,7 +101,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT message_text, direction FROM messages WHERE chat_id = '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}' ORDER BY created_at DESC LIMIT 10;"
+        "query": "SELECT COALESCE(json_agg(t), '[]'::json) AS history FROM (SELECT message_text, direction FROM messages WHERE chat_id = '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}' ORDER BY created_at DESC LIMIT 10) t;"
       },
       "id": "8",
       "name": "DB - Load History & Knowledge",
@@ -116,7 +117,7 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{ $env.ENABLE_AI_ASSISTANT !== 'false' }}",
+              "value1": "={{ true }}",
               "value2": true
             }
           ]
@@ -134,10 +135,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.OLLAMA_BASE_URL }}/api/generate",
+        "url": "http://host.docker.internal:11434/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"{{ $env.OLLAMA_MODEL }}\",\n  \"prompt\": \"You are an AI Sales Assistant for Apex Enterprise Solutions on Telegram.\\n\\nBUSINESS KNOWLEDGE BASE:\\n{{ JSON.stringify($('DB - Load History & Knowledge').all().map(i => i.json)) }}\\n\\nCustomer Name: {{ $('Code - Extract & Validate Message Info').item.json.customer_name }}\\nChat ID: {{ $('Code - Extract & Validate Message Info').item.json.chat_id }}\\nIncoming Customer Message: {{ $('Code - Extract & Validate Message Info').item.json.message_text }}\\n\\nRespond with valid JSON ONLY matching schema: {\\\"reply\\\": \\\"...\\\", \\\"lead_ready\\\": false, \\\"human_handoff\\\": false, \\\"handoff_reason\\\": \\\"\\\", \\\"lead_score\\\": 0, \\\"lead\\\": {\\\"name\\\": \\\"...\\\", \\\"chat_id\\\": \\\"...\\\", \\\"telegram_username\\\": \\\"...\\\", \\\"product_interest\\\": \\\"...\\\", \\\"requirement\\\": \\\"...\\\"}}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
+        "jsonBody": "={\n  \"model\": \"qwen2.5:0.5b\",\n  \"prompt\": \"You are an AI Sales Assistant for Apex Enterprise Solutions on Telegram.\\n\\nCustomer Name: {{ $('Code - Extract & Validate Message Info').item.json.customer_name }}\\nChat ID: {{ $('Code - Extract & Validate Message Info').item.json.chat_id }}\\nIncoming Customer Message: {{ $('Code - Extract & Validate Message Info').item.json.message_text }}\\n\\nRespond with valid JSON ONLY matching schema: {\\\"reply\\\": \\\"...\\\", \\\"lead_ready\\\": false, \\\"human_handoff\\\": false, \\\"handoff_reason\\\": \\\"\\\", \\\"lead_score\\\": 0, \\\"lead\\\": {\\\"name\\\": \\\"...\\\", \\\"chat_id\\\": \\\"...\\\", \\\"telegram_username\\\": \\\"...\\\", \\\"product_interest\\\": \\\"...\\\", \\\"requirement\\\": \\\"...\\\"}}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
       },
       "id": "9",
       "name": "HTTP Request - Ollama AI",
@@ -177,7 +178,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "url": "=https://api.telegram.org/bot{{ (typeof $env !== 'undefined' && $env.TELEGRAM_BOT_TOKEN) ? $env.TELEGRAM_BOT_TOKEN : '8171082982:AAF7H4hQadyhp0wiLwFLKVupMBKRmcplLjw' }}/sendMessage",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
