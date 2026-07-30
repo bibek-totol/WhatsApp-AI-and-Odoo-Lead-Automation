@@ -75,6 +75,7 @@ services:
       - PASSWORD=odoo_password
     volumes:
       - odoo_data:/var/lib/odoo
+      - ./custom_addons:/mnt/extra-addons
     depends_on:
       - db-odoo
     networks:
