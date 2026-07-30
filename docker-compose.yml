@@ -1,15 +1,15 @@
 version: '3.8'
 
 services:
-  # Database for n8n and WhatsApp AI Application Data
+  # Database for n8n and Telegram AI Application Data
   postgres:
     image: postgres:16-alpine
-    container_name: whatsapp_ai_postgres
+    container_name: telegram_ai_postgres
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-n8n_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-n8n_password}
-      POSTGRES_DB: ${POSTGRES_DB:-whatsapp_ai_db}
+      POSTGRES_DB: ${POSTGRES_DB:-telegram_ai_db}
     ports:
       - "5432:5432"
     volumes:
@@ -21,7 +21,7 @@ services:
   # n8n Automation Engine
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
-    container_name: whatsapp_ai_n8n
+    container_name: telegram_ai_n8n
     restart: always
     ports:
       - "5678:5678"
@@ -29,7 +29,7 @@ services:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-whatsapp_ai_db}
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-telegram_ai_db}
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n_user}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-n8n_password}
       - N8N_BASIC_AUTH_ACTIVE=true
@@ -63,7 +63,7 @@ services:
   # Odoo 17 Community Edition CRM
   odoo:
     image: odoo:17
-    container_name: whatsapp_ai_odoo
+    container_name: telegram_ai_odoo
     restart: always
     ports:
       - "8069:8069"

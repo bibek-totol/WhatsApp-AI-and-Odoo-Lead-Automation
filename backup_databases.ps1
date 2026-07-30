@@ -1,5 +1,5 @@
 # backup_databases.ps1
-# Automated Database Backup Script for WhatsApp AI & Odoo CRM Databases
+# Automated Database Backup Script for Telegram AI & Odoo CRM Databases
 
 $Date = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $BackupDir = Join-Path $PSScriptRoot "backups"
@@ -14,14 +14,14 @@ Write-Host " Starting Database Backup Process ($Date)" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 
-$WhatsAppAiBackup = Join-Path $BackupDir "whatsapp_ai_db_$Date.sql"
-Write-Host "Backing up WhatsApp AI database..." -ForegroundColor Yellow
-docker exec whatsapp_ai_postgres pg_dump -U n8n_user whatsapp_ai_db > $WhatsAppAiBackup
+$TelegramAiBackup = Join-Path $BackupDir "telegram_ai_db_$Date.sql"
+Write-Host "Backing up Telegram AI database..." -ForegroundColor Yellow
+docker exec telegram_ai_postgres pg_dump -U n8n_user telegram_ai_db > $TelegramAiBackup
 
-if ($LASTEXITCODE -eq 0 -and (Test-Path $WhatsAppAiBackup) -and (Get-Item $WhatsAppAiBackup).Length -gt 0) {
-    Write-Host "[SUCCESS] WhatsApp AI DB saved to: $WhatsAppAiBackup" -ForegroundColor Green
+if ($LASTEXITCODE -eq 0 -and (Test-Path $TelegramAiBackup) -and (Get-Item $TelegramAiBackup).Length -gt 0) {
+    Write-Host "[SUCCESS] Telegram AI DB saved to: $TelegramAiBackup" -ForegroundColor Green
 } else {
-    Write-Host "[ERROR] Failed to backup WhatsApp AI database." -ForegroundColor Red
+    Write-Host "[ERROR] Failed to backup Telegram AI database." -ForegroundColor Red
 }
 
 

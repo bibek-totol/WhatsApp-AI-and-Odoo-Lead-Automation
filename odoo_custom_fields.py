@@ -7,7 +7,7 @@ Creates required custom fields on the `crm.lead` model in Odoo Community Edition
 import os
 import xmlrpc.client
 
-# Load environment variables from .env if present
+# Load environment variables from .env file
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 if os.path.exists(env_path):
     with open(env_path, "r", encoding="utf-8") as f:
@@ -15,12 +15,16 @@ if os.path.exists(env_path):
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, val = line.split("=", 1)
-                os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+                os.environ[key.strip()] = val.strip().strip('"').strip("'")
 
-ODOO_URL = os.getenv("ODOO_URL", "http://localhost:8069")
-ODOO_DB = os.getenv("ODOO_DB", "odoo_db")
-ODOO_USERNAME = os.getenv("ODOO_USERNAME", "admin@example.com")
-ODOO_PASSWORD = os.getenv("ODOO_PASSWORD", "admin_password")
+ODOO_URL = os.getenv("ODOO_URL")
+ODOO_DB = os.getenv("ODOO_DB")
+ODOO_USERNAME = os.getenv("ODOO_USERNAME")
+ODOO_PASSWORD = os.getenv("ODOO_PASSWORD")
+
+missing_env = [var for var, val in [("ODOO_URL", ODOO_URL), ("ODOO_DB", ODOO_DB), ("ODOO_USERNAME", ODOO_USERNAME), ("ODOO_PASSWORD", ODOO_PASSWORD)] if not val]
+if missing_env:
+    raise EnvironmentError(f"Missing required environment variables in .env file: {', '.join(missing_env)}")
 
 def main():
     print(f"Connecting to Odoo at {ODOO_URL} (DB: {ODOO_DB})...")
@@ -43,8 +47,9 @@ def main():
 
   
     custom_fields = [
-        {"name": "x_whatsapp_number", "field_description": "WhatsApp Number", "ttype": "char"},
-        {"name": "x_whatsapp_message_id", "field_description": "WhatsApp Message ID", "ttype": "char"},
+        {"name": "x_telegram_chat_id", "field_description": "Telegram Chat ID", "ttype": "char"},
+        {"name": "x_telegram_username", "field_description": "Telegram Username", "ttype": "char"},
+        {"name": "x_telegram_message_id", "field_description": "Telegram Message ID", "ttype": "char"},
         {"name": "x_product_interest", "field_description": "Product Interest", "ttype": "char"},
         {"name": "x_customer_requirement", "field_description": "Customer Requirement", "ttype": "text"},
         {"name": "x_customer_budget", "field_description": "Customer Budget", "ttype": "char"},

@@ -1,44 +1,21 @@
 {
-  "name": "WhatsApp_AI_Odoo_Lead_Automation",
+  "name": "Telegram_AI_Odoo_Lead_Automation",
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "GET",
-        "path": "whatsapp",
-        "responseMode": "lastNode",
-        "options": {}
-      },
-      "id": "1",
-      "name": "Webhook - Meta Verification",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [100, 200]
-    },
-    {
-      "parameters": {
-        "jsCode": "const query = $input.item.json.query || {};\nconst verifyToken = process.env.META_VERIFY_TOKEN || 'my_secure_whatsapp_verify_token_2026';\n\nconst mode = query['hub.mode'];\nconst token = query['hub.verify_token'];\nconst challenge = query['hub.challenge'];\n\nif (mode === 'subscribe' && token === verifyToken) {\n  return [{ json: { body: challenge } }];\n} else {\n  return [{ json: { body: 'Verification failed: invalid token or mode', status: 403 } }];\n}"
-      },
-      "id": "1b",
-      "name": "Code - Validate Verification Token",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [320, 200]
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
-        "path": "whatsapp",
+        "path": "telegram",
         "options": {}
       },
       "id": "2",
-      "name": "Webhook - Incoming WhatsApp",
+      "name": "Webhook - Incoming Telegram",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [100, 400]
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.item.json.body;\n\n// 1. Validate payload structure\nif (!body || typeof body !== 'object' || !body.entry || !Array.isArray(body.entry) || body.entry.length === 0) {\n  return [{ json: { isValid: false, reason: 'Invalid or missing entry payload structure' } }];\n}\n\nconst changes = body.entry[0].changes;\nif (!changes || !Array.isArray(changes) || changes.length === 0 || !changes[0].value) {\n  return [{ json: { isValid: false, reason: 'Missing change value payload' } }];\n}\n\nconst value = changes[0].value;\nif (!value.messages || !Array.isArray(value.messages) || value.messages.length === 0) {\n  return [{ json: { isValid: false, reason: 'Status delivery update or empty message (ignored)' } }];\n}\n\nconst message = value.messages[0];\nconst contact = value.contacts && value.contacts.length > 0 ? value.contacts[0] : {};\n\n// 2. Limit accepted message types: text only\nif (message.type !== 'text' || !message.text || !message.text.body || message.text.body.trim() === '') {\n  return [{ json: { isValid: false, reason: `Unsupported message type '${message.type}' (accepted: text only)` } }];\n}\n\nreturn [{\n  json: {\n    isValid: true,\n    whatsapp_message_id: message.id,\n    phone_number: message.from,\n    customer_name: contact.profile ? contact.profile.name : 'WhatsApp User',\n    message_text: message.text.body.trim(),\n    message_type: message.type,\n    timestamp: message.timestamp\n  }\n}];"
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst headers = $input.item.json.headers || {};\nconst secretToken = process.env.TELEGRAM_SECRET_TOKEN || (typeof $env !== 'undefined' ? $env.TELEGRAM_SECRET_TOKEN : '');\nconst incomingToken = headers['x-telegram-bot-api-secret-token'];\n\n// 1. Verify Secret Token if configured\nif (secretToken && incomingToken && secretToken !== incomingToken) {\n  return [{ json: { isValid: false, reason: 'Invalid secret token header' } }];\n}\n\nconst message = body.message || body.edited_message;\nif (!message || typeof message !== 'object') {\n  return [{ json: { isValid: false, reason: 'No message object in payload' } }];\n}\n\n// 2. Limit accepted message types: text only\nif (!message.text || message.text.trim() === '') {\n  return [{ json: { isValid: false, reason: 'Non-text message ignored (accepted: text only)' } }];\n}\n\nconst fromUser = message.from || {};\nconst chat = message.chat || {};\nconst firstName = fromUser.first_name || chat.first_name || '';\nconst lastName = fromUser.last_name || chat.last_name || '';\nconst fullName = [firstName, lastName].filter(Boolean).join(' ') || fromUser.username || 'Telegram User';\n\nreturn [{\n  json: {\n    isValid: true,\n    telegram_message_id: message.message_id.toString(),\n    chat_id: chat.id.toString(),\n    telegram_username: fromUser.username ? '@' + fromUser.username : '',\n    customer_name: fullName,\n    message_text: message.text.trim(),\n    message_type: 'text',\n    timestamp: message.date\n  }\n}];"
       },
       "id": "3",
       "name": "Code - Extract & Validate Message Info",
@@ -66,7 +43,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT whatsapp_message_id FROM processed_messages WHERE whatsapp_message_id = '{{ $json.whatsapp_message_id }}';"
+        "query": "SELECT telegram_message_id FROM processed_messages WHERE telegram_message_id = '{{ $json.telegram_message_id }}';"
       },
       "id": "5",
       "name": "DB - Check Duplicate Message ID",
@@ -94,7 +71,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO processed_messages (whatsapp_message_id) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.whatsapp_message_id }}');"
+        "query": "INSERT INTO processed_messages (telegram_message_id) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}');"
       },
       "id": "7",
       "name": "DB - Mark Message Processed",
@@ -105,7 +82,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT message_text, direction FROM messages WHERE phone_number = '{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}' ORDER BY created_at DESC LIMIT 10;"
+        "query": "SELECT message_text, direction FROM messages WHERE chat_id = '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}' ORDER BY created_at DESC LIMIT 10;"
       },
       "id": "8",
       "name": "DB - Load History & Knowledge",
@@ -133,10 +110,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://host.docker.internal:11434/api/generate",
+        "url": "={{ $env.OLLAMA_BASE_URL }}/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"{{ $env.OLLAMA_MODEL || 'qwen2.5:3b' }}\",\n  \"prompt\": \"System Prompt: Respond ONLY in JSON matching standard format.\\nCustomer message: {{ $('Code - Extract & Validate Message Info').item.json.message_text }}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
+        "jsonBody": "={\n  \"model\": \"{{ $env.OLLAMA_MODEL }}\",\n  \"prompt\": \"System Prompt: Respond ONLY in JSON matching standard format.\\nCustomer message: {{ $('Code - Extract & Validate Message Info').item.json.message_text }}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}"
       },
       "id": "9",
       "name": "HTTP Request - Ollama AI",
@@ -167,14 +144,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v20.0/{{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $env.META_WHATSAPP_TOKEN }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -183,10 +156,10 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.ai_output.reply }}\"\n  }\n}"
+        "jsonBody": "={\n  \"chat_id\": \"{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}\",\n  \"text\": \"{{ $json.ai_output.reply }}\"\n}"
       },
       "id": "11",
-      "name": "HTTP Request - Send WhatsApp Reply",
+      "name": "HTTP Request - Send Telegram Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [2080, 400]
@@ -194,7 +167,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.whatsapp_message_id }}', '{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}', 'incoming', '{{ $('Code - Extract & Validate Message Info').item.json.message_text }}'); INSERT INTO messages (whatsapp_message_id, phone_number, direction, message_text) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract & Validate Message Info').item.json.phone_number }}', 'outgoing', '{{ $json.ai_output.reply }}');"
+        "query": "INSERT INTO messages (telegram_message_id, chat_id, direction, message_text) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}', '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}', 'incoming', '{{ $('Code - Extract & Validate Message Info').item.json.message_text }}'); INSERT INTO messages (telegram_message_id, chat_id, direction, message_text) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}', 'outgoing', '{{ $json.ai_output.reply }}');"
       },
       "id": "12",
       "name": "DB - Save Messages Log",
@@ -221,7 +194,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Search Odoo CRM by x_whatsapp_number and create or update lead\nreturn [{ json: { status: 'Odoo Lead Created/Updated Successfully' } }];"
+        "jsCode": "// Search Odoo CRM by x_telegram_chat_id and create or update lead\nreturn [{ json: { status: 'Odoo Lead Created/Updated Successfully' } }];"
       },
       "id": "14",
       "name": "Odoo Lead Integration Node",
@@ -231,18 +204,7 @@
     }
   ],
   "connections": {
-    "Webhook - Meta Verification": {
-      "main": [
-        [
-          {
-            "node": "Code - Validate Verification Token",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Webhook - Incoming WhatsApp": {
+    "Webhook - Incoming Telegram": {
       "main": [
         [
           {
@@ -352,7 +314,7 @@
       "main": [
         [
           {
-            "node": "HTTP Request - Send WhatsApp Reply",
+            "node": "HTTP Request - Send Telegram Reply",
             "type": "main",
             "index": 0
           }
@@ -363,14 +325,14 @@
       "main": [
         [
           {
-            "node": "HTTP Request - Send WhatsApp Reply",
+            "node": "HTTP Request - Send Telegram Reply",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - Send WhatsApp Reply": {
+    "HTTP Request - Send Telegram Reply": {
       "main": [
         [
           {
