@@ -17,7 +17,7 @@ if os.path.exists(env_path):
                 key, val = line.split("=", 1)
                 os.environ[key.strip()] = val.strip().strip('"').strip("'")
 
-ODOO_URL = os.getenv("ODOO_URL")
+ODOO_URL = os.getenv("ODOO_URL", "").rstrip("/")
 ODOO_DB = os.getenv("ODOO_DB")
 ODOO_USERNAME = os.getenv("ODOO_USERNAME")
 ODOO_PASSWORD = os.getenv("ODOO_PASSWORD")
@@ -29,10 +29,16 @@ if missing_env:
 def main():
     print(f"Connecting to Odoo at {ODOO_URL} (DB: {ODOO_DB})...")
     common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
-    uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {})
-    
+    try:
+        uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {})
+    except Exception as err:
+        print(f"ERROR: Could not connect to Odoo server at {ODOO_URL}: {err}")
+        return
+
     if not uid:
-        print("ERROR: Authentication failed! Please check credentials.")
+        print(f"ERROR: Authentication failed for user '{ODOO_USERNAME}' on database '{ODOO_DB}'!")
+        print("Please ensure Odoo CRM is running on port 8069 and the database name matches your Odoo database.")
+        return
         return
 
     print(f"Authenticated successfully! User ID: {uid}")
@@ -80,7 +86,77 @@ def main():
             new_id = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'ir.model.fields', 'create', [field_data])
             print(f"Created custom field {field['name']} (ID: {new_id})")
 
-    print("All custom CRM fields processed successfully!")
+    # Now create or update the Form View inheritance so fields are visible on the Lead Form in Odoo UI
+    print("Updating Odoo Lead Form View layout to display custom fields...")
+    view_name = "crm.lead.form.telegram.ai.custom.fields"
+    existing_views = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD, 'ir.ui.view', 'search',
+        [[['name', '=', view_name]]]
+    )
+
+    view_arch = """<?xml version="1.0"?>
+<data>
+    <xpath expr="//notebook" position="inside">
+        <page string="Telegram AI Info">
+            <group>
+                <group string="Telegram Profile">
+                    <field name="x_telegram_chat_id"/>
+                    <field name="x_telegram_username"/>
+                    <field name="x_telegram_message_id"/>
+                    <field name="x_last_message_time"/>
+                </group>
+                <group string="AI Qualification">
+                    <field name="x_ai_lead_score"/>
+                    <field name="x_product_interest"/>
+                    <field name="x_customer_budget"/>
+                    <field name="x_required_timeline"/>
+                    <field name="x_customer_location"/>
+                    <field name="x_preferred_contact_time"/>
+                </group>
+            </group>
+            <group string="Requirements &amp; AI Summary">
+                <field name="x_customer_requirement"/>
+                <field name="x_ai_summary"/>
+                <field name="x_handoff_reason"/>
+            </group>
+        </page>
+    </xpath>
+</data>"""
+
+    # Get parent view ID for crm.crm_lead_view_form
+    parent_view_ids = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD, 'ir.ui.view', 'search',
+        [[['key', '=', 'crm.crm_lead_view_form']]]
+    )
+    if not parent_view_ids:
+        parent_view_ids = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'ir.ui.view', 'search',
+            [[['model', '=', 'crm.lead'], ['type', '=', 'form']]]
+        )
+
+    if parent_view_ids:
+        parent_id = parent_view_ids[0]
+        if existing_views:
+            models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, 'ir.ui.view', 'write',
+                [existing_views, {'arch': view_arch}]
+            )
+            print("Successfully updated Lead Form View in Odoo!")
+        else:
+            view_data = {
+                'name': view_name,
+                'model': 'crm.lead',
+                'inherit_id': parent_id,
+                'arch': view_arch,
+                'priority': 99
+            }
+            v_id = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'ir.ui.view', 'create', [view_data])
+            print(f"Successfully created Lead Form View tab (View ID: {v_id})!")
+    else:
+        print("Warning: Could not locate parent lead form view to auto-inject layout.")
+
+    print("All custom CRM fields and Form View layout processed successfully!")
 
 if __name__ == "__main__":
     main()
+
