@@ -56,7 +56,7 @@ INSERT INTO business_knowledge (category, content) VALUES
 ('company_info', 'Apex Enterprise Solutions is a premier technology consulting firm specializing in Odoo ERP customization, CRM optimization, and self-hosted Telegram AI lead automation.'),
 ('contact_details', 'Contact us via Email: support@apexsolutions.com, Phone/Telegram: +1-555-0199, Website: https://apexsolutions.example.com. Headquarters: Tech Park Tower, Suite 400.'),
 ('services_odoo', 'Odoo ERP Services: Odoo Community & Enterprise deployment, custom module development, XML-RPC / REST API integrations, CRM workflow setup, and automated lead scoring ($500 - $2,500).'),
-('services_telegram_ai', 'Telegram AI Automation: Custom n8n workflow integration, Telegram Bot API setup, local LLM/Ollama integration, intent classification, lead qualification, and automated CRM sync ($300 - $1,200).'),
+('services_telegram_ai', 'Telegram AI Automation: Custom n8n workflow integration, Telegram Bot API setup, Google Gemini AI Studio integration, intent classification, lead qualification, and automated CRM sync ($300 - $1,200).'),
 ('services_enterprise', 'Full Enterprise Automation Package: End-to-end integration including Odoo CRM, PostgreSQL database logging, human agent handoff system, custom dashboards, and 24/7 self-hosted AI chatbot ($2,000+).'),
 ('pricing_plans', 'Pricing Plans: 1. Starter AI Chatbot ($300 one-time), 2. Professional Odoo CRM + Telegram AI ($800 one-time), 3. Enterprise Custom Solution (Custom Quote upon consultation).'),
 ('faq_business_hours', 'Business Hours: Sunday through Thursday, 9:00 AM to 6:00 PM (GMT+6). Emergency technical support for Enterprise clients is available 24/7.'),
