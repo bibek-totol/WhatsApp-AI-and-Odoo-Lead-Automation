@@ -220,18 +220,22 @@ docker exec -i telegram_ai_postgres psql -U n8n_user -d telegram_ai_db < init_db
 
 ---
 
-### 3.2 Creating Required Custom CRM Fields & UI Tab Injection
+### 3.2 Custom Addon Module (`custom_addons/ai_lead`) & UI Tab Injection
 
-Run the included python helper script:
-```powershell
-python odoo_custom_fields.py
-```
-*What this script accomplishes:*
-1. Connects to Odoo XML-RPC API using credentials from `.env`.
-2. Automatically creates all 13 custom fields on the `crm.lead` model.
-3. Automatically creates an inherited XML form view (`crm.lead.form.telegram.ai.custom.fields`), adding a dedicated **"Telegram AI Info"** tab to the Odoo Lead Form interface!
+The 13 custom fields and the CRM GUI layout are managed natively via the custom Odoo module `ai_lead` located in `custom_addons/ai_lead`.
 
-#### Summary of 13 Custom CRM Fields Created:
+#### How `custom_addons/ai_lead` Works:
+1. **Directory Mounting:** The `custom_addons` directory is automatically mounted to `/mnt/extra-addons` inside the Odoo Docker container via `docker-compose.yml`.
+2. **Model Field Definition (`models/crm_lead.py`):** Inherits `crm.lead` and defines all 13 custom fields (`x_telegram_chat_id`, `x_telegram_username`, `x_customer_budget`, etc.).
+3. **Form View Inheriting (`views/crm_lead_views.xml`):** Automatically injects a dedicated **"Telegram AI Info"** tab into the Odoo CRM Lead Form layout.
+
+#### Activating the `ai_lead` Module in Odoo:
+1. Go to **Settings** → Scroll down and click **Activate Developer Mode**.
+2. Go to **Apps** menu → Click **Update Apps List** in the top navigation bar.
+3. Remove the default `Apps` search filter, type `AI Lead Automation` or `ai_lead`, and click **Search**.
+4. Click **Activate** on the **AI Lead Automation** module.
+
+#### Summary of 13 Custom CRM Fields Created by `ai_lead`:
 
 | Field Technical Name | Field Label | Field Type | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -411,7 +415,7 @@ Exports timestamped `.sql` database dumps to `./backups/` with 30-day retention 
 - [x] `.env.example` (Template environment configuration file)
 - [x] `init_db.sql` (PostgreSQL schema initialization script)
 - [x] `n8n_workflow.json` (Exported n8n workflow with native HTTP Odoo nodes)
-- [x] `odoo_custom_fields.py` (Automated XML-RPC script for Odoo custom fields & "Telegram AI Info" tab view creation)
+- [x] `custom_addons/ai_lead` (Custom Odoo addon module with models, fields, & XML views)
 - [x] `backup_databases.ps1` (Automated daily database backup PowerShell script)
 
 ---
