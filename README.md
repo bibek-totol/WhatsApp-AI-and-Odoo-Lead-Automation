@@ -4,6 +4,12 @@
 > **Goal:** Build, deploy, and verify a 100% self-hosted Telegram AI Lead Generation assistant integrated with Odoo CRM using Google Gemini 3.1 Flash-Lite AI.  
 > **Key Constraint:** Zero paid middleware subscriptions, fully automated lead extraction into 13 custom Odoo CRM fields with real-time multi-turn conversation memory.
 
+> [!CAUTION]
+> **⚠️ Production Limitations — Read Before Deploying**  
+> This system is designed and validated as a **self-hosted MVP for local/testing use**. Several architectural constraints will directly cause failures or degraded service in a real production environment. Key pain points include: no uptime guarantee (host-PC dependency), ephemeral Cloudflare tunnel URLs that break after every restart, Google Gemini free-tier rate limits under concurrent load, text-only message processing (no media/voice support) and no direct in-Odoo reply-to-Telegram capability after human handoff.  
+
+> See [Section 10: Production Limitations & Known Gaps](#10-phase-9-production-limitations--known-gaps) for the full breakdown with recommended upgrades.
+
 ---
 
 ## Table of Contents
@@ -33,6 +39,7 @@
    - [6.4 Duplicate Webhook Protection & Fallback Verification](#64-duplicate-webhook-protection--fallback-verification)
 8. [Phase 7: Maintenance, Backup & Recruiter Deliverables Checklist](#8-phase-7-maintenance-backup--recruiter-deliverables-checklist)
 9. [Phase 8: Security Requirements & Production Hardening Guide](#9-phase-8-security-requirements--production-hardening-guide)
+10. [Phase 9: Production Limitations & Known Gaps](#10-phase-9-production-limitations--known-gaps)
 
 ---
 
@@ -428,4 +435,128 @@ Exports timestamped `.sql` database dumps to `./backups/` with 30-day retention 
 4. **Duplicate Protection:** Idempotency enforced via PostgreSQL `processed_messages`.
 
 ---
+
+## 10. Phase 9: Production Limitations & Known Gaps
+
+> [!CAUTION]
+> The following limitations are **not theoretical** — they will directly cause service interruptions, data loss, or poor user experience if this system is promoted to a real production environment without the recommended mitigations.
+
+---
+
+### 10.1 🔴 Zero Uptime Guarantee — Host PC Dependency
+
+**Severity: Critical**
+
+The entire system runs on Docker Desktop installed on a local Windows PC. If the machine:
+- Is **shut down or restarted** (e.g., Windows Update)
+- Goes into **sleep or hibernate mode**
+- Suffers a **hardware failure or power cut**
+
+...the chatbot becomes completely unavailable. Telegram will queue incoming messages for up to ~5 minutes before dropping them, meaning customers receive **no response and no error notice**.
+
+| What Breaks | Impact |
+|:---|:---|
+| n8n webhook stops accepting requests | All incoming Telegram messages are silently lost |
+| PostgreSQL database goes offline | Conversation history and idempotency checks fail |
+| Odoo CRM goes offline | Lead sync fails silently — n8n error log only |
+
+**Recommended Fix:** Deploy all Docker containers on a VPS/cloud VM (e.g., DigitalOcean, Hetzner, AWS EC2) with a process manager (`systemd` or Docker `restart: always`) and server uptime monitoring.
+
+---
+
+### 10.2 🔴 Cloudflare Quick Tunnel — Not Production-Grade
+
+**Severity: Critical**
+
+The Cloudflare Quick Tunnel (`cloudflared tunnel --url http://localhost:5678`) used to expose the n8n webhook to Telegram has fundamental production flaws:
+
+- **New random subdomain on every restart** — Every time the tunnel command is run, Cloudflare assigns a different `xxxx.trycloudflare.com` URL. You must manually re-run `setWebhook` with the new URL each time or messages stop arriving.
+- **No uptime SLA** — Quick Tunnels are Cloudflare's free, ephemeral, best-effort service. Cloudflare can terminate the tunnel at any time without notice.
+- **Single point of failure** — There is no failover tunnel or health-check mechanism.
+
+**Recommended Fix:** Register a **Cloudflare Named Tunnel** tied to a custom domain (free with Cloudflare account), OR use a reverse proxy (nginx + Let's Encrypt SSL) on a VPS with a static IP address. This provides a static, permanent webhook URL.
+
+```bash
+# Example: Named Tunnel setup (stable URL)
+cloudflared tunnel create my-bot-tunnel
+cloudflared tunnel route dns my-bot-tunnel bot.yourdomain.com
+cloudflared tunnel run my-bot-tunnel
+```
+
+---
+
+### 10.3 🟠 Google Gemini Free Tier — Rate Limits Under Load
+
+**Severity: High**
+
+The system uses the **Google AI Studio free tier** for `gemini-3.1-flash-lite`. This tier enforces strict rate limits:
+
+| Limit Type | Free Tier Threshold |
+|:---|:---|
+| Requests Per Minute (RPM) | 15 RPM |
+| Tokens Per Day (TPD) | 1,000,000 tokens/day |
+| Requests Per Day (RPD) | 1,500 requests/day |
+
+**Production Impact:** If more than ~10–12 customers chat simultaneously, requests will receive HTTP `429 Too Many Requests` errors. The n8n `Code - Parse AI Response` node catches this and sends the polite fallback message — but the customer receives **no intelligent reply and loses context**.
+
+**Recommended Fix:** Upgrade to a **Google AI Studio paid tier** (pay-per-use) or switch to direct **Vertex AI** for enterprise-grade rate limits. Add exponential backoff retry logic inside `Code - Prepare Gemini Payload`.
+
+---
+
+### 10.4 🟠 Text-Only Message Processing — No Media Support
+
+**Severity: High**
+
+The `IF - Valid Text Message` node ignores everything that is not a plain text `message.text`. The following Telegram message types are **silently dropped** with no response to the customer:
+
+- 📷 Photos and images
+- 🎤 Voice messages and audio clips
+- 📹 Video notes
+- 📁 Documents and PDF files
+- 📍 Location pins
+- 🖼️ Stickers and GIFs
+- ✍️ Forwarded messages (when original sender info conflicts)
+
+**Production Impact:** A customer who sends a photo of their requirement document, a voice note explaining their project, or shares their location receives **absolute silence** — indistinguishable from a broken bot.
+
+**Recommended Fix:** Add a handler node after `IF - Valid Text Message` for the `false` branch that sends a polite auto-reply: *"I can only process text messages. Please type your question or requirement."*
+
+
+---
+
+### 10.5 🟡 Human Handoff — No In-Odoo Reply Capability
+
+**Severity: Medium**
+
+When `human_handoff = true`, the AI stops responding and the Odoo lead is flagged. However, the sales agent **cannot reply to the customer directly from within Odoo CRM**. There is no Telegram ↔ Odoo Discuss channel bridge. The agent must:
+1. Leave Odoo
+2. Open Telegram manually (or Telegram Web)
+3. Find the customer's chat thread
+4. Type a reply manually
+
+**Production Impact:** Response latency increases significantly. Agent workflow is broken across two separate tools, causing missed follow-ups and poor customer experience.
+
+**Recommended Fix:** Integrate an Odoo partner channel module or build a simple n8n sub-workflow that polls a designated Odoo note/chatter field and relays its content to the customer's Telegram `chat_id` via the Bot API `sendMessage` endpoint.
+
+---
+
+
+### 10.6 🟡 No End-to-End Error Alerting
+
+**Severity: Medium**
+
+When n8n workflow nodes fail (e.g., Gemini API 429, Odoo offline, PostgreSQL timeout), errors are logged to the n8n execution history UI only. There is:
+
+- No email alert to the system administrator
+- No Telegram message to a designated admin chat
+- No SMS or PagerDuty notification
+- No automatic retry mechanism for failed Odoo sync attempts
+
+**Production Impact:** Failures can go unnoticed for hours. Failed lead syncs mean CRM data is incomplete with no recovery mechanism.
+
+**Recommended Fix:** Add an n8n **Error Workflow** (`Settings > Error Workflow`) that sends a Telegram message to an admin `chat_id` containing the failed node name, error message, and timestamp.
+
+---
+
+
 *Created for Job Applicant Submission — Self-Hosted Telegram AI & Odoo Lead Automation.*
