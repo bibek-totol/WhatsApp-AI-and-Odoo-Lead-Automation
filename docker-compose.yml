@@ -40,9 +40,9 @@ services:
       # Telegram Bot API
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_SECRET_TOKEN=${TELEGRAM_SECRET_TOKEN}
-      # Google Gemini AI
+      # Google Gemini AI (free tier: Flash / Flash-Lite models only, no billing needed)
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash}
       - ENABLE_AI_ASSISTANT=${ENABLE_AI_ASSISTANT:-true}
       # Odoo CRM
       - ODOO_URL=http://odoo:8069

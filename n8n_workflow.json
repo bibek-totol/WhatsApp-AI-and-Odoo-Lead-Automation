@@ -11,32 +11,23 @@
       "name": "Webhook - Incoming Telegram",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [
-        100,
-        400
-      ]
+      "position": [100, 400]
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst headers = $input.item.json.headers || {};\n\nlet secretToken = '';\ntry {\n  secretToken = (typeof $env !== 'undefined' && $env.TELEGRAM_SECRET_TOKEN) ? $env.TELEGRAM_SECRET_TOKEN : '';\n} catch (e) {\n  secretToken = '';\n}\n\nconst incomingToken = headers['x-telegram-bot-api-secret-token'] || headers['X-Telegram-Bot-Api-Secret-Token'];\n\nif (secretToken && incomingToken && secretToken !== incomingToken) {\n  return [{ json: { isValid: false, reason: 'Invalid secret token header' } }];\n}\n\nconst message = body.message || body.edited_message;\nif (!message || typeof message !== 'object') {\n  return [{ json: { isValid: false, reason: 'No message object in payload' } }];\n}\n\nif (!message.text || message.text.trim() === '') {\n  return [{ json: { isValid: false, reason: 'Non-text message ignored (accepted: text only)' } }];\n}\n\nconst fromUser = message.from || {};\nconst chat = message.chat || {};\nconst firstName = fromUser.first_name || chat.first_name || '';\nconst lastName = fromUser.last_name || chat.last_name || '';\nconst fullName = [firstName, lastName].filter(Boolean).join(' ') || fromUser.username || 'Telegram User';\n\nreturn [{\n  json: {\n    isValid: true,\n    telegram_message_id: message.message_id.toString(),\n    chat_id: chat.id.toString(),\n    telegram_username: fromUser.username ? '@' + fromUser.username : '',\n    customer_name: fullName,\n    message_text: message.text.trim(),\n    message_type: 'text',\n    timestamp: message.date\n  }\n}];"
+        "jsCode": "const body = $input.first()?.json?.body || $input.first()?.json || {};\nconst headers = $input.first()?.json?.headers || {};\n\nconst message = body.message || body.edited_message;\nif (!message || typeof message !== 'object') {\n  return [{ json: { isValid: false, reason: 'No message object in payload' } }];\n}\n\nif (!message.text || message.text.trim() === '') {\n  return [{ json: { isValid: false, reason: 'Non-text message ignored' } }];\n}\n\nconst fromUser = message.from || {};\nconst chat = message.chat || {};\nconst firstName = fromUser.first_name || chat.first_name || '';\nconst lastName = fromUser.last_name || chat.last_name || '';\nconst fullName = [firstName, lastName].filter(Boolean).join(' ') || fromUser.username || 'Telegram User';\n\nreturn [{\n  json: {\n    isValid: true,\n    telegram_message_id: String(message.message_id || ''),\n    chat_id: String(chat.id || ''),\n    telegram_username: fromUser.username ? '@' + fromUser.username : '',\n    customer_name: fullName,\n    message_text: message.text.trim(),\n    message_type: 'text',\n    timestamp: message.date\n  }\n}];"
       },
       "id": "3",
       "name": "Code - Extract & Validate Message Info",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        320,
-        400
-      ]
+      "position": [320, 400]
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
-            {
-              "value1": "={{ $json.isValid }}",
-              "value2": true
-            }
+            { "value1": "={{ $json.isValid }}", "value2": true }
           ]
         }
       },
@@ -44,10 +35,32 @@
       "name": "IF - Valid Text Message",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [
-        540,
-        400
-      ]
+      "position": [540, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*)::int AS is_duplicate FROM processed_messages WHERE telegram_message_id = '{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}';"
+      },
+      "id": "5",
+      "name": "DB - Check Duplicate Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [660, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            { "value1": "={{ $json.is_duplicate }}", "operation": "equal", "value2": 0 }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "IF - Not Already Processed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [760, 400]
     },
     {
       "parameters": {
@@ -58,101 +71,53 @@
       "name": "DB - Load History & Knowledge",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [
-        760,
-        400
-      ]
+      "position": [980, 400]
     },
     {
       "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ ($env.ENABLE_AI_ASSISTANT || 'true') === 'true' }}",
-              "value2": true
-            }
-          ]
-        }
-      },
-      "id": "8b",
-      "name": "IF - AI Enabled Globally",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [
-        980,
-        400
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const extracted = ($('Code - Extract & Validate Message Info').item.json || {});\nconst history = ($('DB - Load History & Knowledge').item.json.history || []);\n\nconst systemPrompt = `=== SYSTEM ROLE & IDENTITY ===\nYou are the official AI Sales & Lead Qualification Specialist representing Apex Enterprise Solutions on Telegram.\n- Company Name: Apex Enterprise Solutions\n- Company Specialization: Custom Odoo ERP Development & Integration, Telegram & WhatsApp AI Chatbot Automation, Business Process Engineering.\n- Persona: Professional, polite, articulate, dynamic, helpful, and customer-focused.\n\n=== CRITICAL DIALOGUE & LEAD QUALIFICATION RULES ===\n1. CONVERSATION MEMORY & CONTINUITY:\n   - Review the RECENT MESSAGE HISTORY carefully.\n   - NEVER ask for information the customer has ALREADY provided in previous messages (e.g., if customer already stated they operate an E-commerce business or clothing business, DO NOT ask what business they operate! Ask which modules e.g. Sales, Inventory, Accounts, or Purchasing they need).\n   - DO NOT ask for phone number right away. First understand their business requirement and ask relevant follow-up questions.\n\n2. MULTILINGUAL SUPPORT (ENGLISH & BANGLA):\n   - Natively detect if customer writes in English or Bangla (বাংলা).\n   - ALWAYS respond in the SAME language used by the customer.\n\n3. HANDLING OFF-TOPIC & INAPPROPRIATE / SECRET QUESTIONS:\n   - Off-Topic Questions (e.g. \"Cook birayni for me\", recipes, weather, sports):\n     Gently refuse in customer's language.\n     Example (English): \"I'm sorry! I am an AI Sales Assistant for Apex Enterprise Solutions. I don't know biryani recipes, but I would be glad to assist you with custom Odoo ERP or AI automation for your business! What software solution are you looking for?\"\n     Example (Bangla): \"দুঃখিত! আমি Apex Enterprise Solutions-এর AI অ্যাসিস্ট্যান্ট। বিরিয়ানি রান্নার রেসিপি আমার জানা নেই, তবে আপনার ব্যবসার জন্য AI চ্যাটবট বা Odoo ERP অটোমেশন তৈরিতে আমি চমৎকার সাহায্য করতে পারি!\"\n   - Secret / Confidential Questions (e.g. company income, internal secrets, passwords):\n     Gently refuse in customer's language.\n     Example (English): \"I'm sorry, I cannot share confidential or internal company information. However, I would be glad to assist you with Apex Enterprise Solutions' services like Odoo ERP and AI automation! What software solution are you looking for?\"\n     Example (Bangla): \"দুঃখিত! আমি প্রতিষ্ঠানের অভ্যন্তরীণ বা গোপন তথ্য শেয়ার করতে পারি না। তবে Apex Enterprise Solutions-এর সার্ভিস যেমন Odoo ERP বা AI অটোমেশন সম্পর্কে জানতে চাইলে সানন্দে সাহায্য করব!\"\n\n4. HUMAN HANDOVER TRIGGER:\n   Set human_handoff = true and lead_ready = true if customer provides a phone number OR explicitly requests to speak with a human / representative / sales executive / live demo.\n   Confirm handover warmly: \"Thank you [Name]. I have shared your request with our team. A representative will contact you as soon as possible.\"\n\n5. LEAD DATA EXTRACTION:\n   Extract all lead fields present in the context: name, phone, email, company, product_interest, requirement, budget, timeline, location, preferred_contact_time.\n\n=== REQUIRED OUTPUT FORMAT ===\nYou MUST respond with STRICT VALID JSON ONLY. Do NOT use markdown code blocks outside JSON.\n\nJSON Schema:\n{\n  \"reply\": \"Professional dynamic reply to customer\",\n  \"lead_ready\": boolean,\n  \"human_handoff\": boolean,\n  \"handoff_reason\": \"\",\n  \"lead_score\": number,\n  \"lead\": {\n    \"name\": \"\",\n    \"chat_id\": \"\",\n    \"telegram_username\": \"\",\n    \"phone\": \"\",\n    \"email\": \"\",\n    \"company\": \"\",\n    \"product_interest\": \"\",\n    \"requirement\": \"\",\n    \"budget\": \"\",\n    \"timeline\": \"\",\n    \"location\": \"\",\n    \"preferred_contact_time\": \"\",\n    \"notes\": \"\"\n  }\n}`;\n\nconst userContent = `Customer Name: ${extracted.customer_name || 'Customer'}\nChat ID: ${extracted.chat_id || ''}\nTelegram Username: ${extracted.telegram_username || ''}\nLatest Customer Message: ${extracted.message_text || ''}\n\nChronological Message History:\n${JSON.stringify(history)}`;\n\nconst requestBody = {\n  system_instruction: {\n    parts: [{ text: systemPrompt }]\n  },\n  contents: [{\n    parts: [{ text: userContent }]\n  }],\n  generationConfig: {\n    temperature: 0.3,\n    response_mime_type: \"application/json\"\n  }\n};\n\nreturn [{ json: { payload: requestBody } }];"
+        "jsCode": "const extracted = ($('Code - Extract & Validate Message Info').first()?.json || {});\nconst history = ($('DB - Load History & Knowledge').first()?.json?.history || []);\n\nconst systemPrompt = `=== SYSTEM ROLE & IDENTITY ===\nYou are the official AI Sales & Lead Qualification Specialist representing Apex Enterprise Solutions on Telegram.\n- Company Name: Apex Enterprise Solutions\n- Company Specialization: Custom Odoo ERP Development & Integration, Telegram & WhatsApp AI Chatbot Automation, Business Process Engineering.\n- Persona: Professional, polite, articulate, dynamic, helpful, and customer-focused.\n\n=== CRITICAL DIALOGUE & LEAD QUALIFICATION RULES ===\n1. CONVERSATION MEMORY & CONTINUITY:\n   - Review the RECENT MESSAGE HISTORY carefully.\n   - NEVER ask for information the customer has ALREADY provided in previous messages.\n   - If customer asks for quotation, call, or pricing, confirm politely and acknowledge warmly.\n\n2. MULTILINGUAL SUPPORT (ENGLISH & BANGLA):\n   - ALWAYS respond in the SAME language used by the customer.\n\n3. HANDLING OFF-TOPIC QUESTIONS:\n   - Gently refuse off-topic questions and redirect to Apex Enterprise Solutions services.\n\n4. HUMAN HANDOVER TRIGGER:\n   Set human_handoff = true and lead_ready = true if customer provides a phone number OR explicitly requests a call / quotation.\n\n5. COMPREHENSIVE LEAD DATA EXTRACTION:\n   Extract ALL available details from conversation history into the 'lead' object:\n   - name, phone, email, company, product_interest, requirement, budget, timeline, location, preferred_contact_time, notes\n\n=== REQUIRED OUTPUT FORMAT ===\nSTRICT VALID JSON ONLY. No markdown.\n\n{\n  \"reply\": \"Professional dynamic reply\",\n  \"lead_ready\": boolean,\n  \"human_handoff\": boolean,\n  \"handoff_reason\": \"\",\n  \"lead_score\": number,\n  \"lead\": {\n    \"name\": \"\", \"chat_id\": \"\", \"telegram_username\": \"\",\n    \"phone\": \"\", \"email\": \"\", \"company\": \"\",\n    \"product_interest\": \"\", \"requirement\": \"\",\n    \"budget\": \"\", \"timeline\": \"\", \"location\": \"\",\n    \"preferred_contact_time\": \"\", \"notes\": \"\"\n  }\n}`;\n\nconst userContent = `Customer Name: ${extracted.customer_name || 'Customer'}\nChat ID: ${extracted.chat_id || ''}\nTelegram Username: ${extracted.telegram_username || ''}\nLatest Customer Message: ${extracted.message_text || ''}\n\nChronological Message History:\n${JSON.stringify(history)}`;\n\nconst requestBody = {\n  system_instruction: { parts: [{ text: systemPrompt }] },\n  contents: [{ parts: [{ text: userContent }] }],\n  generationConfig: { temperature: 0.3, response_mime_type: \"application/json\" }\n};\n\nreturn [{ json: { payload: requestBody } }];"
       },
       "id": "8c",
       "name": "Code - Prepare Gemini Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1100,
-        400
-      ]
+      "position": [1200, 400]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/' + ($env.GEMINI_MODEL || 'gemini-2.0-flash') + ':generateContent?key=' + $env.GEMINI_API_KEY }}",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=YOUR_GEMINI_API_KEY_HERE",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.payload) }}"
+        "jsonBody": "={{ $json.payload }}",
+        "options": { "timeout": 20000 }
       },
       "id": "9",
       "name": "HTTP Request - Gemini AI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        1300,
-        400
-      ],
-      "onError": "continueRegularOutput"
+      "position": [1400, 400],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500
     },
     {
       "parameters": {
-        "jsCode": "const extracted = ($('Code - Extract & Validate Message Info').item.json || {});\nconst geminiRes = $input.item.json || {};\n\nlet rawText = '';\ntry {\n  if (geminiRes.candidates && geminiRes.candidates[0] && geminiRes.candidates[0].content && geminiRes.candidates[0].content.parts) {\n    rawText = geminiRes.candidates[0].content.parts[0].text || '';\n  }\n} catch (e) {\n  rawText = '';\n}\n\nlet parsed = null;\nif (rawText) {\n  try {\n    const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();\n    parsed = JSON.parse(cleaned);\n  } catch (e) {\n    console.log('Failed to parse Gemini output:', e);\n  }\n}\n\nif (!parsed || typeof parsed !== 'object' || !parsed.reply) {\n  const msgText = extracted.message_text || '';\n  const isBangla = /[\\u0980-\\u09FF]/.test(msgText);\n  parsed = {\n    reply: isBangla ? `ধন্যবাদ ${extracted.customer_name || ''}! Apex Enterprise Solutions-এ আপনাকে স্বাগতম। কীভাবে সাহায্য করতে পারি?` : `Hello ${extracted.customer_name || ''}! Welcome to Apex Enterprise Solutions. How can we assist your business today?`,\n    lead_ready: false,\n    human_handoff: false,\n    handoff_reason: '',\n    lead_score: 20,\n    lead: {\n      name: extracted.customer_name || '',\n      chat_id: extracted.chat_id || '',\n      telegram_username: extracted.telegram_username || '',\n      requirement: msgText\n    }\n  };\n}\n\nif (!parsed.lead) parsed.lead = {};\nif (!parsed.lead.chat_id) parsed.lead.chat_id = extracted.chat_id || '';\nif (!parsed.lead.telegram_username) parsed.lead.telegram_username = extracted.telegram_username || '';\nif (!parsed.lead.name) parsed.lead.name = extracted.customer_name || 'Telegram User';\n\nreturn [{ json: { success: true, ai_output: parsed } }];"
+        "jsCode": "const extracted = ($('Code - Extract & Validate Message Info').first()?.json || {});\nconst geminiRes = $input.first()?.json || {};\n\nlet rawText = '';\nlet apiError = '';\ntry {\n  if (geminiRes.error) {\n    apiError = JSON.stringify(geminiRes.error);\n  } else if (geminiRes.candidates?.[0]?.content?.parts) {\n    rawText = geminiRes.candidates[0].content.parts[0].text || '';\n  }\n} catch (e) { apiError = String(e); }\n\nlet parsed = null;\nif (rawText) {\n  try {\n    const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();\n    parsed = JSON.parse(cleaned);\n  } catch (e) {}\n}\n\nlet fallbackUsed = false;\nif (!parsed || typeof parsed !== 'object' || !parsed.reply) {\n  fallbackUsed = true;\n  const msgText = extracted.message_text || '';\n  const isBangla = /[\\u0980-\\u09FF]/.test(msgText);\n  parsed = {\n    reply: isBangla\n      ? `ধন্যবাদ ${extracted.customer_name || ''}! আপনার মেসেজটি পেয়েছি। কীভাবে সাহায্য করতে পারি?`\n      : `Hello ${extracted.customer_name || ''}! Thank you for reaching out to Apex Enterprise Solutions. How can we assist you today?`,\n    lead_ready: false, human_handoff: false, handoff_reason: '', lead_score: 20,\n    lead: { name: extracted.customer_name || '', chat_id: extracted.chat_id || '', telegram_username: extracted.telegram_username || '', requirement: msgText }\n  };\n}\n\nif (!parsed.lead) parsed.lead = {};\nif (!parsed.lead.chat_id) parsed.lead.chat_id = extracted.chat_id || '';\nif (!parsed.lead.telegram_username) parsed.lead.telegram_username = extracted.telegram_username || '';\nif (!parsed.lead.name) parsed.lead.name = extracted.customer_name || 'Telegram User';\n\n// Extract phone from message text if AI didn't catch it\nconst msgText = extracted.message_text || '';\nif (!parsed.lead.phone) {\n  const phoneMatch = msgText.match(/(?:\\+?880|0)?1[3-9]\\d{8}|[0-9]{11}/);\n  if (phoneMatch) parsed.lead.phone = phoneMatch[0].trim();\n}\n\nreturn [{ json: { success: true, ai_output: parsed, _fallback_used: fallbackUsed, _api_error: apiError } }];"
       },
       "id": "10",
       "name": "Code - Parse AI Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1500,
-        400
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{\n  json: {\n    success: true,\n    ai_output: {\n      reply: 'Thank you for your message. Our automated AI assistant is currently paused. A team representative will reply to you shortly.',\n      lead_ready: true,\n      human_handoff: true,\n      handoff_reason: 'AI Assistant Disabled Manually',\n      lead_score: 0,\n      lead: {}\n    }\n  }\n}];"
-      },
-      "id": "10b",
-      "name": "Code - AI Disabled Response",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1500,
-        580
-      ]
+      "position": [1600, 400]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://api.telegram.org/bot{{ (typeof $env !== 'undefined' && $env.TELEGRAM_BOT_TOKEN) ? $env.TELEGRAM_BOT_TOKEN : '8171082982:AAF7H4hQadyhp0wiLwFLKVupMBKRmcplLjw' }}/sendMessage",
+        "url": "=https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN_HERE/sendMessage",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"chat_id\": \"{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}\",\n  \"text\": \"{{ $json.ai_output.reply }}\"\n}"
@@ -161,189 +126,156 @@
       "name": "HTTP Request - Send Telegram Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        1700,
-        400
-      ],
+      "position": [1800, 400],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO messages (telegram_message_id, chat_id, direction, message_text) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}', '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}', 'incoming', '{{ $('Code - Extract & Validate Message Info').item.json.message_text }}'); INSERT INTO messages (telegram_message_id, chat_id, direction, message_text) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}', 'outgoing', '{{ $json.ai_output.reply }}');"
+        "query": "INSERT INTO messages (telegram_message_id, chat_id, direction, message_text) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}', '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}', 'incoming', '{{ $('Code - Extract & Validate Message Info').item.json.message_text }}'); INSERT INTO messages (telegram_message_id, chat_id, direction, message_text, message_type) VALUES ('reply_' || gen_random_uuid(), '{{ $('Code - Extract & Validate Message Info').item.json.chat_id }}', 'outgoing', '{{ $json.ai_output.reply }}', '{{ $json._fallback_used ? \"ai_fallback\" : \"text\" }}');"
       },
       "id": "12",
       "name": "DB - Save Messages Log",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [
-        1900,
-        400
-      ],
+      "position": [2000, 400],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ true }}",
-              "value2": true
-            }
-          ]
-        }
+        "operation": "executeQuery",
+        "query": "INSERT INTO processed_messages (telegram_message_id) VALUES ('{{ $('Code - Extract & Validate Message Info').item.json.telegram_message_id }}') ON CONFLICT (telegram_message_id) DO NOTHING;"
       },
-      "id": "13",
-      "name": "IF - Sync to Odoo?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [
-        2100,
-        400
-      ]
+      "id": "12b",
+      "name": "DB - Mark Message Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2200, 400],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "let odooUrlRaw = ($env.ODOO_URL || 'http://odoo:8069').replace(/\\/$/, '');\nlet odooUrl = odooUrlRaw.replace('localhost', 'odoo').replace('127.0.0.1', 'odoo');\nconst odooDb = $env.ODOO_DB || 'odoo_db1';\nconst odooUser = $env.ODOO_USERNAME || 'admin@example.com';\nconst odooPass = $env.ODOO_PASSWORD || 'admin_password';\n\nconst extracted = $('Code - Extract & Validate Message Info').item.json || {};\nconst parseNode = $('Code - Parse AI Response').item.json || {};\nconst aiOutput = parseNode.ai_output || {};\nconst leadData = aiOutput.lead || {};\n\nconst chatId = String(extracted.chat_id || '');\nconst telegramUsername = String(extracted.telegram_username || '');\nconst telegramMsgId = String(extracted.telegram_message_id || '');\nconst customerName = leadData.name || extracted.customer_name || 'Telegram User';\n\nconst msgText = extracted.message_text || '';\nconst phoneMatch = msgText.match(/(\\+?[0-9]{1,4}[\\s\\-]?)?\\(?[0-9]{3}\\)?[\\s\\-]?[0-9]{3}[\\s\\-]?[0-9]{4,6}|[0-9]{11}/);\nconst phone = leadData.phone || (phoneMatch ? phoneMatch[0].trim() : '');\n\nconst productInterest = leadData.product_interest || 'Odoo ERP System';\nconst requirement = leadData.requirement || msgText || 'Odoo ERP Customization';\nconst leadScore = typeof aiOutput.lead_score === 'number' ? aiOutput.lead_score : 50;\nconst aiReply = aiOutput.reply || '';\nconst handoffReason = aiOutput.handoff_reason || (aiOutput.human_handoff ? 'Customer requested human sales executive call / quotation' : 'Standard Inquiry');\n\nconst nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);\n\ntry {\n  const authRes = await fetch(`${odooUrl}/jsonrpc`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      jsonrpc: '2.0',\n      method: 'call',\n      params: {\n        service: 'common',\n        method: 'authenticate',\n        args: [odooDb, odooUser, odooPass, {}]\n      },\n      id: 1\n    })\n  });\n  const authJson = await authRes.json();\n  const uid = authJson.result;\n\n  if (!uid) {\n    return [{ json: { status: 'Odoo Auth Failed', error: authJson.error || 'Invalid credentials or DB' } }];\n  }\n\n  const searchRes = await fetch(`${odooUrl}/jsonrpc`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      jsonrpc: '2.0',\n      method: 'call',\n      params: {\n        service: 'object',\n        method: 'execute_kw',\n        args: [\n          odooDb, uid, odooPass,\n          'crm.lead', 'search',\n          [[['name', 'ilike', chatId]]]\n        ]\n      },\n      id: 2\n    })\n  });\n  const searchJson = await searchRes.json();\n  const leadIds = searchJson.result || [];\n\n  const leadFields = {\n    name: `Telegram Lead - ${customerName} (${chatId})`,\n    contact_name: customerName,\n    description: `Latest Message: ${msgText}\\nPhone: ${phone}\\nRequirement: ${requirement}\\nAI Summary: ${aiReply}\\nHandoff Reason: ${handoffReason}\\nScore: ${leadScore}`,\n    x_telegram_chat_id: chatId,\n    x_telegram_username: telegramUsername,\n    x_telegram_message_id: telegramMsgId,\n    x_last_message_time: nowStr,\n    x_ai_lead_score: leadScore,\n    x_product_interest: productInterest,\n    x_customer_budget: leadData.budget || 'Negotiable / Custom Quote',\n    x_required_timeline: leadData.timeline || 'Within 2-4 Weeks',\n    x_customer_location: leadData.location || 'Bangladesh',\n    x_preferred_contact_time: leadData.preferred_contact_time || 'Business Hours (9 AM - 6 PM)',\n    x_customer_requirement: requirement,\n    x_ai_summary: aiReply,\n    x_handoff_reason: handoffReason\n  };\n\n  if (phone) {\n    leadFields.phone = phone;\n  }\n\n  if (leadIds.length > 0) {\n    const leadId = leadIds[0];\n    await fetch(`${odooUrl}/jsonrpc`, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({\n        jsonrpc: '2.0',\n        method: 'call',\n        params: {\n          service: 'object',\n          method: 'execute_kw',\n          args: [\n            odooDb, uid, odooPass,\n            'crm.lead', 'write',\n            [[leadId], leadFields]\n          ]\n        },\n        id: 3\n      })\n    });\n    return [{ json: { status: 'Lead Updated in Odoo', lead_id: leadId, chat_id: chatId, phone: phone, fields_updated: 13 } }];\n  } else {\n    const createRes = await fetch(`${odooUrl}/jsonrpc`, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({\n        jsonrpc: '2.0',\n        method: 'call',\n        params: {\n          service: 'object',\n          method: 'execute_kw',\n          args: [\n            odooDb, uid, odooPass,\n            'crm.lead', 'create',\n            [leadFields]\n          ]\n        },\n        id: 4\n      })\n    });\n    const createJson = await createRes.json();\n    const newLeadId = createJson.result;\n    return [{ json: { status: 'Lead Created in Odoo', lead_id: newLeadId, chat_id: chatId, phone: phone, fields_created: 13 } }];\n  }\n} catch (err) {\n  return [{ json: { status: 'Odoo Lead Sync Error', error: err.message } }];\n}"
+        "jsCode": "const extracted = ($('Code - Extract & Validate Message Info').first()?.json || {});\nconst parseNode = ($('Code - Parse AI Response').first()?.json || {});\nconst aiOutput = parseNode.ai_output || {};\nconst leadData = aiOutput.lead || {};\n\nconst chatId = String(extracted.chat_id || leadData.chat_id || '');\nconst telegramUsername = String(extracted.telegram_username || leadData.telegram_username || '');\nconst telegramMsgId = String(extracted.telegram_message_id || '');\nconst customerName = leadData.name || extracted.customer_name || 'Telegram User';\nconst msgText = extracted.message_text || '';\nconst phone = leadData.phone || '';\nconst productInterest = leadData.product_interest || leadData.requirement || 'Odoo ERP System';\nconst requirement = leadData.requirement || msgText || 'Odoo ERP Customization';\nconst leadScore = typeof aiOutput.lead_score === 'number' ? aiOutput.lead_score : 80;\nconst aiReply = aiOutput.reply || '';\nconst handoffReason = aiOutput.handoff_reason || (aiOutput.human_handoff ? 'Customer requested call/quotation' : 'Standard Inquiry');\nconst nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);\n\nreturn [{ json: {\n  odooAuthPayload: {\n    jsonrpc: '2.0', method: 'call',\n    params: { service: 'common', method: 'authenticate', args: ['odoo_db1', 'admin@example.com', 'admin_password', {}] },\n    id: 1\n  },\n  chatId, telegramUsername, telegramMsgId, customerName, msgText,\n  phone, productInterest, requirement, leadScore, aiReply, handoffReason, nowStr,\n  leadData\n}}];"
       },
-      "id": "14",
-      "name": "Odoo Lead Integration Node",
+      "id": "13",
+      "name": "Code - Prepare Odoo Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        2300,
-        400
-      ]
+      "position": [2400, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo:8069/jsonrpc",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.odooAuthPayload }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "15",
+      "name": "HTTP - Odoo Auth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2600, 400],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo:8069/jsonrpc",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"call\",\n  \"params\": {\n    \"service\": \"object\",\n    \"method\": \"execute_kw\",\n    \"args\": [\n      \"odoo_db1\",\n      {{ $json.result }},\n      \"admin_password\",\n      \"crm.lead\",\n      \"search\",\n      [[[\"x_telegram_chat_id\", \"=\", \"{{ $('Code - Prepare Odoo Payload').item.json.chatId }}\"]]]\n    ]\n  },\n  \"id\": 2\n}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "16",
+      "name": "HTTP - Odoo Search Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2800, 400],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const uid = $('HTTP - Odoo Auth').first()?.json?.result;\nconst leadIds = $('HTTP - Odoo Search Lead').first()?.json?.result || [];\nconst prep = $('Code - Prepare Odoo Payload').first()?.json || {};\n\nif (!uid) {\n  return [{ json: { status: 'Odoo Auth Failed - uid missing', uid: uid } }];\n}\n\nconst leadFields = {\n  name: `Telegram Lead - ${prep.customerName} (${prep.chatId})`,\n  contact_name: prep.customerName,\n  description: `Latest Message: ${prep.msgText}\\nPhone: ${prep.phone}\\nRequirement: ${prep.requirement}\\nAI Summary: ${prep.aiReply}\\nHandoff: ${prep.handoffReason}\\nScore: ${prep.leadScore}`,\n  type: 'opportunity',\n  user_id: uid,\n  x_telegram_chat_id: prep.chatId,\n  x_telegram_username: prep.telegramUsername,\n  x_telegram_message_id: prep.telegramMsgId,\n  x_last_message_time: prep.nowStr,\n  x_ai_lead_score: prep.leadScore,\n  x_product_interest: prep.productInterest,\n  x_customer_budget: prep.leadData?.budget || 'Negotiable / Custom Quote',\n  x_required_timeline: prep.leadData?.timeline || 'Within 2-4 Weeks',\n  x_customer_location: prep.leadData?.location || 'Bangladesh',\n  x_preferred_contact_time: prep.leadData?.preferred_contact_time || (prep.phone ? prep.msgText : 'Business Hours'),\n  x_customer_requirement: prep.requirement,\n  x_ai_summary: prep.aiReply,\n  x_handoff_reason: prep.handoffReason\n};\n\nif (prep.phone) leadFields.phone = prep.phone;\nif (prep.leadData?.email) leadFields.email_from = prep.leadData.email;\nif (prep.leadData?.company) leadFields.partner_name = prep.leadData.company;\n\nconst isUpdate = leadIds.length > 0;\nconst method = isUpdate ? 'write' : 'create';\nconst args = isUpdate\n  ? [leadIds, leadFields]\n  : [leadFields];\n\nreturn [{ json: {\n  odooWritePayload: {\n    jsonrpc: '2.0', method: 'call',\n    params: { service: 'object', method: 'execute_kw', args: ['odoo_db1', uid, 'admin_password', 'crm.lead', method, [args]] },\n    id: 3\n  },\n  uid, leadIds, isUpdate, chatId: prep.chatId, phone: prep.phone\n}}];"
+      },
+      "id": "17",
+      "name": "Code - Build Odoo Write Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3000, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo:8069/jsonrpc",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.odooWritePayload }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "18",
+      "name": "HTTP - Odoo Create/Update Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3200, 400],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
     "Webhook - Incoming Telegram": {
-      "main": [
-        [
-          {
-            "node": "Code - Extract & Validate Message Info",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Code - Extract & Validate Message Info", "type": "main", "index": 0 }]]
     },
     "Code - Extract & Validate Message Info": {
-      "main": [
-        [
-          {
-            "node": "IF - Valid Text Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "IF - Valid Text Message", "type": "main", "index": 0 }]]
     },
     "IF - Valid Text Message": {
-      "main": [
-        [
-          {
-            "node": "DB - Load History & Knowledge",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "DB - Check Duplicate Message", "type": "main", "index": 0 }]]
+    },
+    "DB - Check Duplicate Message": {
+      "main": [[{ "node": "IF - Not Already Processed", "type": "main", "index": 0 }]]
+    },
+    "IF - Not Already Processed": {
+      "main": [[{ "node": "DB - Load History & Knowledge", "type": "main", "index": 0 }]]
     },
     "DB - Load History & Knowledge": {
-      "main": [
-        [
-          {
-            "node": "IF - AI Enabled Globally",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF - AI Enabled Globally": {
-      "main": [
-        [
-          {
-            "node": "Code - Prepare Gemini Payload",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Code - AI Disabled Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Code - Prepare Gemini Payload", "type": "main", "index": 0 }]]
     },
     "Code - Prepare Gemini Payload": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request - Gemini AI",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "HTTP Request - Gemini AI", "type": "main", "index": 0 }]]
     },
     "HTTP Request - Gemini AI": {
-      "main": [
-        [
-          {
-            "node": "Code - Parse AI Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Code - Parse AI Response", "type": "main", "index": 0 }]]
     },
     "Code - Parse AI Response": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request - Send Telegram Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - AI Disabled Response": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request - Send Telegram Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "HTTP Request - Send Telegram Reply", "type": "main", "index": 0 }]]
     },
     "HTTP Request - Send Telegram Reply": {
-      "main": [
-        [
-          {
-            "node": "DB - Save Messages Log",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "DB - Save Messages Log", "type": "main", "index": 0 }]]
     },
     "DB - Save Messages Log": {
-      "main": [
-        [
-          {
-            "node": "Odoo Lead Integration Node",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "DB - Mark Message Processed", "type": "main", "index": 0 }]]
+    },
+    "DB - Mark Message Processed": {
+      "main": [[{ "node": "Code - Prepare Odoo Payload", "type": "main", "index": 0 }]]
+    },
+    "Code - Prepare Odoo Payload": {
+      "main": [[{ "node": "HTTP - Odoo Auth", "type": "main", "index": 0 }]]
+    },
+    "HTTP - Odoo Auth": {
+      "main": [[{ "node": "HTTP - Odoo Search Lead", "type": "main", "index": 0 }]]
+    },
+    "HTTP - Odoo Search Lead": {
+      "main": [[{ "node": "Code - Build Odoo Write Payload", "type": "main", "index": 0 }]]
+    },
+    "Code - Build Odoo Write Payload": {
+      "main": [[{ "node": "HTTP - Odoo Create/Update Lead", "type": "main", "index": 0 }]]
     }
   }
 }
