@@ -43,6 +43,7 @@ cmd.exe /c "docker exec odoo_postgres pg_dump -U odoo $OdooDbName > ""$OdooBacku
 if ($LASTEXITCODE -eq 0 -and (Test-Path $OdooBackup) -and (Get-Item $OdooBackup).Length -gt 0) {
     Write-Host "[SUCCESS] Odoo CRM DB saved to: $OdooBackup" -ForegroundColor Green
 } else {
+    
     Write-Host "[WARNING] Failed to backup Odoo database '$OdooDbName'. Attempting fallback database 'postgres'..." -ForegroundColor Yellow
     cmd.exe /c "docker exec odoo_postgres pg_dump -U odoo postgres > ""$OdooBackup"""
     if ($LASTEXITCODE -eq 0 -and (Test-Path $OdooBackup) -and (Get-Item $OdooBackup).Length -gt 0) {
