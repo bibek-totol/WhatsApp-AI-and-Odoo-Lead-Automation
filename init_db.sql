@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS business_knowledge (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Clear all existing database tables on re-initialization for a fresh testing state
+-- TRUNCATE TABLE messages, processed_messages, conversations, contacts, business_knowledge RESTART IDENTITY CASCADE;
+
 -- Insert Expanded Sample Business Knowledge
 INSERT INTO business_knowledge (category, content) VALUES
 ('company_info', 'Apex Enterprise Solutions is a premier technology consulting firm specializing in Odoo ERP customization, CRM optimization, and self-hosted Telegram AI lead automation.'),
